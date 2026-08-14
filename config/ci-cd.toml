@@ -1,0 +1,136 @@
+# Конфигурационный файл для CI/CD ToroidalDB
+
+# Конфигурация тестирования
+[test]
+# Уровень детализации логов тестирования
+log_level = "info"
+
+# Время ожидания для интеграционных тестов (в секундах)
+integration_timeout = 60
+
+# Количество параллельных тестов
+parallel_jobs = 4
+
+# Включить покрытие кода
+coverage_enabled = true
+
+# Порог покрытия кода (%)
+coverage_threshold = 80.0
+
+[build]
+# Оптимизации для релизной сборки
+release_profile = "release"
+opt_level = 3
+lto = true
+codegen_units = 1
+
+# Флаги компиляции
+rust_flags = "-C target-cpu=native"
+
+[security]
+# Включить проверки безопасности
+security_scan_enabled = true
+
+# Проверка уязвимостей в зависимостях
+dependency_audit = true
+
+# Включить hardening флаги
+hardening_flags = true
+
+[deployment]
+# Среда по умолчанию
+default_environment = "development"
+
+# Теги Docker образов
+docker_tags = ["latest", "develop", "main"]
+
+# Режимы деплоя
+deployment_modes = ["development", "staging", "production"]
+
+# Включить zero-downtime деплой
+zero_downtime_deploy = true
+
+[monitoring]
+# Включить сбор метрик
+metrics_enabled = true
+
+# Интервал сбора метрик (в секундах)
+metrics_interval = 30
+
+# Включить логирование производительности
+performance_logging = true
+
+[testing]
+# Включить unit тесты
+unit_tests = true
+
+# Включить интеграционные тесты
+integration_tests = true
+
+# Включить нагрузочное тестирование
+load_tests = false
+
+# Включить тестирование безопасности
+security_tests = true
+
+# Включить тестирование производительности
+performance_tests = true
+
+[features]
+# Включить агрегации
+aggregations = true
+
+# Включить подзапросы
+subqueries = true
+
+# Включить транзакции
+transactions = true
+
+# Включить распределенное выполнение
+distributed_execution = true
+
+# Включить топологические операции
+topological_operations = true
+
+[caching]
+# Включить кэширование запросов
+query_cache_enabled = true
+
+# Максимальный размер кэша (в элементах)
+query_cache_size = 1000
+
+# Время жизни кэша (в секундах)
+cache_ttl_seconds = 3600
+
+[authentication]
+# Включить аутентификацию
+auth_enabled = true
+
+# Время жизни токена (в секундах)
+jwt_expiry_seconds = 3600
+
+# Алгоритм подписи JWT
+jwt_algorithm = "HS256"
+
+# Минимальная длина пароля
+min_password_length = 8
+
+[database]
+# Размер пула соединений
+connection_pool_size = 20
+
+# Время ожидания соединения (в секундах)
+connection_timeout = 30
+
+# Включить логирование запросов
+query_logging = true
+
+[sharding]
+# Количество шардов по умолчанию
+default_shard_count = 3
+
+# Включить consistent hashing
+consistent_hashing = true
+
+# Количество реплик на шард
+virtual_nodes_per_shard = 3

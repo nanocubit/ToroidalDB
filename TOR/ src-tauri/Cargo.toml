@@ -1,0 +1,38 @@
+[package]
+name = "tor-app"
+version = "0.0.0"
+description = "A Tauri App for ToroidalDB administration"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.70"
+
+[lib]
+name = "tor_app_lib"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+tauri = { version = "1.0", features = [] }
+tauri-plugin-shell = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dependencies.tokio]
+version = "1.0"
+features = ["full"]
+
+[build-dependencies]
+tauri-build = { version = "1.0", features = [] }
+
+[features]
+# by default Tauri runs in production mode
+# when `tauri dev` runs it's executed with the `dev` feature
+default = ["custom-protocol"]
+# this feature is used for production builds where `tauri build` is executed with `--no-devtools`
+# or for `tauri dev` builds where `--no-devtools` is used
+production = ["tauri/custom-protocol"]
+# this feature is used for development builds where `tauri dev` is executed without `--no-devtools`
+dev = ["tauri/dev"]
+# IMPORTANT: Do not remove this feature, Tauri depends on it.
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,25 @@
+{
+  "name": "tor-admin",
+  "version": "1.0.0",
+  "description": "Tauri-based admin interface for ToroidalDB",
+  "main": "index.js",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^1.0.0",
+    "@tauri-apps/cli": "^1.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.0.0"
+  },
+  "keywords": [
+    "toroidal",
+    "database",
+    "admin",
+    "tauri",
+    "rust"
+  ],
+  "author": "Vladimir",
+  "license": "MIT"
+}

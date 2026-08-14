@@ -1,0 +1,38 @@
+[package]
+name = "tor-admin"
+version = "1.0.0"
+description = "Desktop admin interface for ToroidalDB"
+authors = ["Vladimir"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.70"
+
+
+
+[dependencies]
+tauri = { version = "1.0", features = ["api-all"] }
+tauri-plugin-shell = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+
+# Зависимости для интеграции с ToroidalDB
+toroidal-db = { path = ".." }  # Ссылка на основной проект
+
+
+
+[build-dependencies]
+tauri-build = { version = "1.0", features = [] }
+
+[features]
+# по умолчанию Tauri работает в production режиме
+# когда выполняется `tauri dev`, используется фича `dev`
+default = ["custom-protocol"]
+# эта фича используется для production сборок где `tauri build` выполняется с `--no-devtools`
+# или для `tauri dev` сборок с `--no-devtools`
+production = ["tauri/custom-protocol"]
+# эта фича используется для development сборок где `tauri dev` выполняется без `--no-devtools`
+dev = ["tauri/dev"]
+# ВАЖНО: Не удаляйте эту фичу, Tauri зависит от неё
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,169 @@
+version: '3.8'
+
+volumes:
+  toroidal_data:
+  grafana_data:
+  metabase_data:
+  prometheus_data:
+  redis_data:
+
+services:
+  # 🌀 ToroidalDB Core
+  toroidal-db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: toroidal-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"   # PGWire for BI tools
+      - "8443:8443"   # REST API + Admin UI
+      - "9090:9090"   # Prometheus metrics
+    environment:
+      - TOROIDAL_PASSWORD=toroidal123
+      - TOROIDAL_DATA_DIR=/data
+      - RUST_LOG=info
+    volumes:
+      - toroidal_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - toroidal-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 🖥️ Grafana Monitoring
+  grafana:
+    image: grafana/grafana:latest
+    container_name: toroidal-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=grafana123
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      toroidal-db:
+        condition: service_healthy
+    networks:
+      - toroidal-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # 📊 Metabase BI Tool
+  metabase:
+    image: metabase/metabase:latest
+    container_name: toroidal-metabase
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - MB_DB_TYPE=postgres
+      - MB_DB_DBNAME=toroidal
+      - MB_DB_PORT=5432
+      - MB_DB_HOST=toroidal-db
+      - MB_DB_USER=admin
+      - MB_DB_PASS=toroidal123
+      - MB_ADMIN_EMAIL=admin@example.com
+      - MB_ADMIN_PASSWORD=metabase123
+    depends_on:
+      toroidal-db:
+        condition: service_healthy
+    networks:
+      - toroidal-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # 📈 Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: toroidal-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"  # Changed to avoid conflict with ToroidalDB metrics
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+    depends_on:
+      toroidal-db:
+        condition: service_healthy
+    networks:
+      - toroidal-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # 🔍 PostgreSQL Client (for testing PGWire)
+  postgres-client:
+    image: postgres:15-alpine
+    container_name: toroidal-pg-client
+    restart: "no"
+    command: >
+      sh -c "
+      echo 'Waiting for ToroidalDB PGWire...' &&
+      sleep 10 &&
+      echo 'Testing PGWire connection:' &&
+      PGPASSWORD=toroidal123 psql -h toroidal-db -U admin -d toroidal -c '\\l' &&
+      PGPASSWORD=toroidal123 psql -h toroidal-db -U admin -d toroidal -c 'SELECT rag_search(\"test\", \"d384\", 0.3);'
+      "
+    environment:
+      - PGPASSWORD=toroidal123
+    depends_on:
+      toroidal-db:
+        condition: service_healthy
+    networks:
+      - toroidal-net
+    profiles:
+      - testing
+
+  # 🐰 Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: toroidal-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --replica-read-only no
+    volumes:
+      - redis_data:/data
+    networks:
+      - toroidal-net
+    profiles:
+      - redis
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "1"
+
+networks:
+  toroidal-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+

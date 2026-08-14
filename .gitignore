@@ -1,0 +1,44 @@
+# Rust
+/target
+**/target
+**/*.rs.bk
+**/*.rs.bk2
+
+# GUI client (Tauri)
+node_modules/
+
+# Secrets & TLS
+cert.pem
+key.pem
+key.rsa
+*.pem
+!charts/**/*.pem
+
+# Local runtime data (sled/RocksDB stores)
+data/
+local_store/
+backups/
+data-backup-*/
+data_shard_*/
+exec_shard*/
+perf_shard*/
+sg_shard*/
+
+# Test artifacts
+*_test_data/
+test_imports
+test_imports/
+test_imports.rs
+test_toroidal_temp/
+test_data_temp/
+
+# Editor / IDE
+.idea/
+.kilocode/
+.DS_Store
+*.swp
+*.swo
+
+# Backup files
+*.bak
+*.backup

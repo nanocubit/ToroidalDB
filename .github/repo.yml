@@ -1,0 +1,13 @@
+name: ToroidalDB
+about: Гибридная векторная + графовая база данных с тороидальной топологией
+labels:
+  - database
+  - vector-search
+  - graph-database
+  - topology
+  - rust
+  - tql
+  - distributed
+  - machine-learning
+  - embeddings
+  - toroidal-topology

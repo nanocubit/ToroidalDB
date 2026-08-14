@@ -1,0 +1,51 @@
+# Clippy configuration
+disallowed-methods = [
+  "std::mem::uninitialized",
+]
+
+# Enable all pedantic lints
+pedantic = true
+
+# Allow some lints that are too strict
+allow = [
+  "clippy::module-name-repetitions",
+  "clippy::similar-names",
+  "clippy::must-use-candidate",
+  "clippy::missing-errors-doc",
+  "clippy::missing-panics-doc",
+  "clippy::struct-excessive-bools",
+]
+
+# Warn about these lints
+warn = [
+  "clippy::cast-lossless",
+  "clippy::cast-possible-truncation",
+  "clippy::cast-possible-wrap",
+  "clippy::cast-precision-loss",
+  "clippy::cast-sign-loss",
+  "clippy::checked-conversions",
+  "clippy::doc-markdown",
+  "clippy::empty-line-after-doc-comments",
+  "clippy::explicit_into_iter_loop",
+  "clippy::explicit_iter_loop",
+  "clippy::fallible-impl-from",
+  "clippy::filter-map-next",
+  "clippy::flat-map-option",
+  "clippy::if-not-else",
+  "clippy::implicit-hasher",
+  "clippy::inconsistent-struct-constructor",
+  "clippy::large-stack-arrays",
+  "clippy::macro-use-imports",
+  "clippy::manual-filter-map",
+  "clippy::manual-find-map",
+  "clippy::map-flatten",
+  "clippy::match-same-arms",
+  "clippy::needless-borrow",
+  "clippy::needless_continue",
+  "clippy::range-plus-one",
+  "clippy::single-match-else",
+  "clippy::trait-duplication-in-bounds",
+  "clippy::type-repetition-in-enum-variant",
+  "clippy::used-underscore-binding",
+  "clippy::wildcard-dependencies",
+]

@@ -1,0 +1,21 @@
+apiVersion: 1
+
+datasources:
+  - name: ToroidalDB
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+    secureJsonData: {}
+
+  - name: ToroidalDB-PGWIRE
+    type: postgres
+    url: postgresql://admin:toroidal123@toroidal-db:5432/toroidal
+    access: proxy
+    isDefault: false
+    editable: true
+    jsonData:
+      sslmode: disable

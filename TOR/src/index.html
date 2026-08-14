@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOR — ToroidalDB Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #0f172a, #0a0f1a);
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            text-align: center;
+        }
+        .logo {
+            font-size: 5rem;
+            background: linear-gradient(45deg, #8b5cf6, #6366f1, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        h1 {
+            font-size: 3.2rem;
+            margin-bottom: 15px;
+            background: linear-gradient(45deg, #8b5cf6, #6366f1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.5rem;
+            margin-bottom: 40px;
+            max-width: 700px;
+            line-height: 1.6;
+        }
+        .status {
+            background: rgba(30, 41, 59, 0.85);
+            border-radius: 25px;
+            padding: 40px;
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+            border: 1px solid #334155;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid #1e293b;
+        }
+        .status-item:last-child {
+            border-bottom: none;
+        }
+        .status-label {
+            color: #64748b;
+            font-size: 1.3rem;
+        }
+        .status-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #6366f1;
+        }
+        .btn {
+            background: linear-gradient(45deg, #6366f1, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 20px 50px;
+            border-radius: 25px;
+            font-size: 1.6rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(99, 102, 241, 0.6);
+        }
+        .btn:active {
+            transform: translateY(2px);
+        }
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 15px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .message {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 15px;
+            max-width: 600px;
+            font-size: 1.2rem;
+            line-height: 1.6;
+        }
+        .message.success {
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .message.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        footer {
+            margin-top: 50px;
+            color: #64748b;
+            font-size: 1.1rem;
+        }
+        @media (max-width: 600px) {
+            .logo { font-size: 3.5rem; }
+            h1 { font-size: 2.5rem; }
+            .subtitle { font-size: 1.3rem; }
+            .btn { padding: 18px 40px; font-size: 1.4rem; }
+            .status { padding: 30px 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="logo">🌀</div>
+    <h1>TOR Admin</h1>
+    <div class="subtitle">Управление гибридной векторно-графовой базой данных ToroidalDB</div>
+    
+    <div class="status">
+        <div class="status-item">
+            <span class="status-label">Сервер ToroidalDB</span>
+            <span class="status-value" id="serverStatus">⏳ Запуск...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Статус</span>
+            <span class="status-value" id="statusText">Инициализация</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Порт</span>
+            <span class="status-value">8443 (HTTPS)</span>
+        </div>
+    </div>
+    
+    <button id="openAdminBtn" class="btn" disabled>
+        <span class="spinner"></span>
+        <span>Запуск админки...</span>
+    </button>
+    
+    <div id="messageContainer"></div>
+    
+    <footer>
+        <p>TOR v1.0 — ToroidalDB Admin Interface</p>
+        <p style="margin-top: 8px; font-size: 0.95rem; color: #475569;">
+            Приложение автоматически запускает сервер базы данных
+        </p>
+    </footer>
+
+    <script>
+        // Импортируем Tauri API
+        import { invoke } from '@tauri-apps/api/tauri';
+        import { open } from '@tauri-apps/api/shell';
+
+        // Глобальные переменные
+        let serverStarted = false;
+        const ADMIN_URL = 'https://localhost:8443/admin';
+
+        // Функция показа сообщения
+        function showMessage(text, type = 'info') {
+            const container = document.getElementById('messageContainer');
+            const msg = document.createElement('div');
+            msg.className = `message ${type}`;
+            msg.textContent = text;
+            container.appendChild(msg);
+
+            // Удаляем старые сообщения
+            while (container.children.length > 3) {
+                container.removeChild(container.firstChild);
+            }
+        }
+
+        // Запуск сервера через Tauri API
+        async function startServer() {
+            try {
+                document.getElementById('statusText').textContent = 'Запуск сервера...';
+                document.getElementById('serverStatus').textContent = '⏳ Запуск...';
+
+                // Вызываем команду Rust для запуска сервера
+                const result = await invoke('start_toroidal_server');
+                console.log('Server start result:', result);
+
+                // Ждём 3 секунды для имитации запуска
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                serverStarted = true;
+                document.getElementById('serverStatus').textContent = '✅ Работает';
+                document.getElementById('statusText').textContent = 'Готов к работе';
+                document.getElementById('openAdminBtn').disabled = false;
+                document.getElementById('openAdminBtn').innerHTML = '🚀 Открыть админку';
+
+                showMessage('Сервер успешно запущен на порту 8443', 'success');
+            } catch (error) {
+                document.getElementById('serverStatus').textContent = '❌ Ошибка';
+                document.getElementById('statusText').textContent = 'Сбой запуска';
+                showMessage(`Ошибка запуска сервера: ${error.message}`, 'error');
+                console.error('Ошибка запуска сервера:', error);
+            }
+        }
+
+        // Открытие админки
+        document.getElementById('openAdminBtn').addEventListener('click', async () => {
+            if (!serverStarted) {
+                showMessage('Сервер ещё не запущен. Подождите...', 'error');
+                return;
+            }
+
+            try {
+                // Проверяем статус сервера
+                const status = await invoke('check_server_status');
+                console.log('Server status:', status);
+
+                // Открываем админку в браузере
+                await open(ADMIN_URL);
+                showMessage('Админка открыта в браузере', 'success');
+            } catch (error) {
+                showMessage(`Ошибка открытия админки: ${error.message}`, 'error');
+                console.error('Ошибка открытия админки:', error);
+            }
+        });
+
+        // Автозапуск при загрузке
+        document.addEventListener('DOMContentLoaded', () => {
+            startServer();
+        });
+    </script>
+</body>
+</html>

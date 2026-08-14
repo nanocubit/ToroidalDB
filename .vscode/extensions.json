@@ -1,0 +1,8 @@
+{
+  "kilocode.mcpServers": ["context7"],
+  "kilocode.agentMode": true,
+  "rust-analyzer.linkedProjects": ["src-tauri/Cargo.toml"],
+  "editor.formatOnSave": true,
+  "svelte.enable-ts-plugin": true,
+  "recommendations": []
+}

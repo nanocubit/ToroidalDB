@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "GuiTor",
+  "version": "0.1.0",
+  "identifier": "com.toroidal.guitor",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "GuiTor - Database IDE",
+        "width": 1600,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 768,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": true
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": false
+    },
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
