@@ -24,7 +24,6 @@ pub mod topology;
 pub mod tql;
 pub mod visualization;
 
-// pub mod storage; // legacy — заменён на hybrid_storage с toroidal-storage
 pub use core::{Cache, EdgePool, LruKCache, NodePool, ObjectPool, PoolConfig};
 pub use embedding::{convert_to_matryoshka, EmbeddingModel, EmbeddingService};
 pub use hybrid_storage::{HybridPersistentStore, Node};

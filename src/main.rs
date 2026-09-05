@@ -24,11 +24,6 @@ async fn main() {
     // Initialize hybrid storage
     let store = Arc::new(HybridPersistentStore::open("./data").expect("Failed to open storage"));
 
-    // Check if migration to RocksDB is recommended
-    if store.should_migrate_to_rocksdb() {
-        println!("⚠️  Consider migrating to RocksDB for better performance with large datasets");
-    }
-
     // Start PGWire server in background
     let pgwire_store = store.clone();
     let pgwire_handle = tokio::spawn(async move {

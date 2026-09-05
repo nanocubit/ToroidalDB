@@ -104,6 +104,12 @@ fn storage_type() {
 }
 
 #[test]
+fn default_persistent_backend_is_toroidal() {
+    let (_dir, store) = store();
+    assert_eq!(store.backend_name(), "toroidal");
+}
+
+#[test]
 fn node_count() {
     let (_dir, store) = store();
     assert_eq!(store.get_node_count(), 0);

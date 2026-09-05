@@ -92,7 +92,7 @@ pub async fn health_handler(State(state): State<Arc<AppState>>) -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "storage": {
             "nodes": node_count,
-            "type": "persistent (sled + graph + matryoshka + topology)",
+            "type": "persistent (toroidal-store + graph + matryoshka + topology)",
             "optimization": optimization,
             "path": "./data"
         }

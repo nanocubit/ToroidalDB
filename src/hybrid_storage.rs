@@ -679,6 +679,11 @@ impl HybridPersistentStore {
         "toroidal-store"
     }
 
+    /// Returns the canonical backend name for diagnostics.
+    pub fn backend_name(&self) -> &'static str {
+        "toroidal"
+    }
+
     /// Durability checkpoint: freeze then flush all buffered writes.
     /// After this call, all acknowledged writes survive process termination.
     pub fn flush(&self) -> Result<()> {
