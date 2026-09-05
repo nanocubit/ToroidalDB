@@ -71,9 +71,11 @@ pub struct ToroidalBackend {
 
 impl ToroidalBackend {
     pub fn open(path: &Path) -> Result<Self> {
-        let store = ToroidalStore::open(path)
-            .map_err(|e| anyhow::anyhow!("ToroidalStore open: {}", e))?;
-        Ok(Self { store: Arc::new(store) })
+        let store =
+            ToroidalStore::open(path).map_err(|e| anyhow::anyhow!("ToroidalStore open: {}", e))?;
+        Ok(Self {
+            store: Arc::new(store),
+        })
     }
 }
 
@@ -102,7 +104,9 @@ impl Storage for ToroidalBackend {
                     key: key.clone(),
                     value: value.clone(),
                 },
-                BatchOp::Delete { key } => toroidal_store::WalFrameKind::Delete { key: key.clone() },
+                BatchOp::Delete { key } => {
+                    toroidal_store::WalFrameKind::Delete { key: key.clone() }
+                }
             })
             .collect();
         self.store
@@ -227,7 +231,11 @@ impl Storage for MemoryBackend {
     }
 
     fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.inner.lock().unwrap().data.insert(key.to_vec(), value.to_vec());
+        self.inner
+            .lock()
+            .unwrap()
+            .data
+            .insert(key.to_vec(), value.to_vec());
         Ok(())
     }
 
@@ -240,8 +248,12 @@ impl Storage for MemoryBackend {
         let mut inner = self.inner.lock().unwrap();
         for op in operations {
             match op {
-                BatchOp::Put { key, value } => { inner.data.insert(key.clone(), value.clone()); }
-                BatchOp::Delete { key } => { inner.data.remove(key); }
+                BatchOp::Put { key, value } => {
+                    inner.data.insert(key.clone(), value.clone());
+                }
+                BatchOp::Delete { key } => {
+                    inner.data.remove(key);
+                }
             }
         }
         Ok(())
@@ -254,15 +266,33 @@ impl Storage for MemoryBackend {
     ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>> {
         let inner = self.inner.lock().unwrap();
         let items: Vec<_> = match (start, end) {
-            (Some(s), Some(e)) => inner.data.range(s.to_vec()..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
-            (Some(s), None) => inner.data.range(s.to_vec()..).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
-            (None, Some(e)) => inner.data.range(..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
-            (None, None) => inner.data.iter().map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (Some(s), Some(e)) => inner
+                .data
+                .range(s.to_vec()..e.to_vec())
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
+            (Some(s), None) => inner
+                .data
+                .range(s.to_vec()..)
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
+            (None, Some(e)) => inner
+                .data
+                .range(..e.to_vec())
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
+            (None, None) => inner
+                .data
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
         };
         Ok(Box::new(items.into_iter()))
     }
 
-    fn flush(&self) -> Result<()> { Ok(()) }
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
 
     fn snapshot(&self) -> Result<Box<dyn Snapshot>> {
         let inner = self.inner.lock().unwrap();
@@ -286,10 +316,26 @@ impl Snapshot for MemSnapshot {
         end: Option<&[u8]>,
     ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>> {
         let items: Vec<_> = match (start, end) {
-            (Some(s), Some(e)) => self.data.range(s.to_vec()..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
-            (Some(s), None) => self.data.range(s.to_vec()..).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
-            (None, Some(e)) => self.data.range(..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
-            (None, None) => self.data.iter().map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (Some(s), Some(e)) => self
+                .data
+                .range(s.to_vec()..e.to_vec())
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
+            (Some(s), None) => self
+                .data
+                .range(s.to_vec()..)
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
+            (None, Some(e)) => self
+                .data
+                .range(..e.to_vec())
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
+            (None, None) => self
+                .data
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), v.clone())))
+                .collect(),
         };
         Ok(Box::new(items.into_iter()))
     }

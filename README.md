@@ -31,7 +31,7 @@ curl -X POST http://localhost:7687 \
 - **Graph Traversal**: Magic Set + Semi-naïve evaluation для рекурсивных запросов
 - **Full-Text Search**: BM25 с FST-словарём и TF-кэшем (256 значений fieldnorm)
 - **Toroidal Topology**: Matryoshka-вложенность, toroidal distance, φ=5.71
-- **Storage**: redb (default) / sled (legacy) / RocksDB (large datasets)
+- **Storage**: ToroidalStore (WAL + MemTable + recovery + compaction)
 
 ### **5 Protocols — 1 Engine**
 ```
@@ -43,7 +43,7 @@ Bolt ──→ GqlBridge ───────────┤
                         TqlEngine::execute()
                               ↓
                     HybridPersistentStore
-                    (redb / sled / rocksdb)
+                    (ToroidalStore)
 ```
 
 ### **Key Components**
@@ -55,7 +55,7 @@ Bolt ──→ GqlBridge ───────────┤
 | **Cache Layer** | Query result caching | HashMemory + MAP-VSA |
 | **Context Modulator** | Distance modulation | DashMap<ContextKey, f32> |
 | **Access Predictor** | Prefetch hot nodes | Frequency analysis |
-| **Storage** | Multi-tier persistence | redb / sled / RocksDB |
+| **Storage** | Multi-tier persistence | ToroidalStore |
 
 ## 🎯 Key Features
 
@@ -193,7 +193,7 @@ src/
 │   ├── hybrid.rs           # Hybrid index
 │   ├── quantization.rs     # Asymmetric quantization (Scalar/Binary/Product)
 │   └── mod.rs              # Filter AST, MemoryTier, VectorIndex trait
-├── hybrid_storage.rs       # redb / sled / RocksDB backend
+├── hybrid_storage.rs       # ToroidalStore backend adapter
 ├── topology/               # E8 lattice, toroidal math, Ricci flow
 ├── pgwire.rs               # PostgreSQL wire protocol
 ├── graphql/                # GraphQL schema + TqlStorage
@@ -212,7 +212,7 @@ src/
 ```toml
 # ToroidalDB.toml
 [storage]
-backend = "redb"  # redb / sled / rocksdb
+backend = "toroidal-store"  # ToroidalStore (production)
 cache_size = "1GB"
 
 [server]
@@ -296,6 +296,6 @@ Licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 **🌀 ToroidalDB v3.1.0 — Where vectors, graphs, text, and topology converge**
 
 **Status**: Production Ready  
-**Storage Backends**: redb (default) / sled / RocksDB  
+**Storage Backend**: ToroidalStore (WAL + MemTable + recovery + compaction)  
 **Protocols**: TQL, GQL, HTTP, GraphQL, Bolt, pgwire  
 **Indexes**: HNSW, IVF, BruteForce, BM25, Filterable HNSW
