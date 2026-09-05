@@ -176,7 +176,7 @@ mod integration_tests {
         // Выполняем прямой вызов matryoshka_search
         let query_vector = vec![0.11, 0.21, 0.31];
         let direct_results = store
-            .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.3, None)
+            .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.3)
             .unwrap();
 
         // Выполняем тот же поиск через TQL

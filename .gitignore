@@ -31,6 +31,13 @@ test_imports/
 test_imports.rs
 test_toroidal_temp/
 test_data_temp/
+test_agg_temp/
+test_bi_data*/
+test_data_vis*/
+test_etl_data*/
+test_projection_data*/
+test_shard*/
+test_topology_data*/
 
 # Editor / IDE
 .idea/
@@ -42,3 +49,11 @@ test_data_temp/
 # Backup files
 *.bak
 *.backup
+
+# Tool artifacts
+.codegraph/
+.gigatool/
+.zcode/
+
+# Benchmarks & reports (1.7 GB comparison artifacts)
+benchmarks/

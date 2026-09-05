@@ -265,6 +265,7 @@ mod toroidal_topology_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         // Выполняем запрос через исполнитель

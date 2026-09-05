@@ -103,6 +103,8 @@ pub struct Query {
     pub having: Option<WhereCondition>,
     // TQL v3.0: Graph analytics
     pub analytics: Vec<GraphAnalyticsFunction>,
+    /// Query vector for similarity search (passed at runtime, not parsed).
+    pub query_vector: Option<Vec<f32>>,
 }
 
 impl Default for Query {
@@ -127,6 +129,7 @@ impl Default for Query {
             group_by: Vec::new(),
             having: None,
             analytics: Vec::new(),
+            query_vector: None,
         }
     }
 }
@@ -214,8 +217,14 @@ pub enum AlterOperation {
     AddEdge(EdgeTypeDef),
     DropNode(String),
     DropEdge(String),
-    AddField { node_type: String, field: FieldDef },
-    DropField { node_type: String, field_name: String },
+    AddField {
+        node_type: String,
+        field: FieldDef,
+    },
+    DropField {
+        node_type: String,
+        field_name: String,
+    },
 }
 
 // ==================== TQL v3.0: Streams ====================
@@ -317,12 +326,12 @@ pub enum EmitClause {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StreamQuery {
     pub stream_name: String,
-    pub window: Option<WindowSpec>,
+    pub window: Option<StreamWindowSpec>,
     pub filter: Option<WhereCondition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WindowSpec {
+pub struct StreamWindowSpec {
     pub duration: Duration,
     pub slide: Option<Duration>,
     pub watermark: Option<String>,
@@ -333,11 +342,28 @@ pub struct WindowSpec {
 /// Графовые аналитические функции
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum GraphAnalyticsFunction {
-    Centrality { node: String, algorithm: CentralityAlgorithm },
-    PageRank { node: String, damping: f32, iterations: u32 },
-    CommunityDetection { algorithm: CommunityAlgorithm },
-    Similarity { node1: String, node2: String, algorithm: String },
-    PathFinding { from: String, to: String, algorithm: String },
+    Centrality {
+        node: String,
+        algorithm: CentralityAlgorithm,
+    },
+    PageRank {
+        node: String,
+        damping: f32,
+        iterations: u32,
+    },
+    CommunityDetection {
+        algorithm: CommunityAlgorithm,
+    },
+    Similarity {
+        node1: String,
+        node2: String,
+        algorithm: String,
+    },
+    PathFinding {
+        from: String,
+        to: String,
+        algorithm: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -447,6 +473,11 @@ pub enum WhereCondition {
     ToroidalDistance {
         field: String,
         threshold: f32,
+    },
+    SimilarTo {
+        field: String,
+        threshold: f32,
+        // Uses HNSW backend (cosine/euclidean), not toroidal distance
     },
     PropertyFilter {
         property: String,

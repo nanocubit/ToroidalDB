@@ -1,13 +1,13 @@
 //! Векторный проектор для ToroidalDB
-//! 
+//!
 //! Предоставляет:
 //! - TSNE проекции векторов
 //! - UMAP проекции векторов
 //! - PCA снижение размерности
 //! - Визуализацию в 2D/3D пространстве
 
-use crate::storage::Node;
 use crate::math::MatryoshkaDim;
+use crate::storage::Node;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -66,7 +66,7 @@ impl VectorProjector {
         target_dims: usize,
     ) -> Result<VectorProjection, String> {
         let start_time = std::time::Instant::now();
-        
+
         // Получаем узлы для проекции
         let mut nodes = Vec::new();
         for &id in node_ids {
@@ -80,9 +80,7 @@ impl VectorProjector {
         }
 
         // Извлекаем векторы
-        let vectors: Vec<Vec<f32>> = nodes.iter()
-            .map(|node| node.vector.clone())
-            .collect();
+        let vectors: Vec<Vec<f32>> = nodes.iter().map(|node| node.vector.clone()).collect();
 
         // Приводим векторы к одинаковой размерности
         let dim = self.get_common_dimension(&vectors)?;
@@ -93,18 +91,27 @@ impl VectorProjector {
 
         // Выполняем проекцию
         let projected_coords = match &algorithm {
-            ProjectionAlgorithm::TSNE { perplexity, learning_rate } => {
-                self.perform_tsne_projection(&padded_vectors, target_dims, *perplexity, *learning_rate)?
-            },
-            ProjectionAlgorithm::UMAP { n_neighbors, min_dist } => {
+            ProjectionAlgorithm::TSNE {
+                perplexity,
+                learning_rate,
+            } => self.perform_tsne_projection(
+                &padded_vectors,
+                target_dims,
+                *perplexity,
+                *learning_rate,
+            )?,
+            ProjectionAlgorithm::UMAP {
+                n_neighbors,
+                min_dist,
+            } => {
                 self.perform_umap_projection(&padded_vectors, target_dims, *n_neighbors, *min_dist)?
-            },
+            }
             ProjectionAlgorithm::PCA { n_components } => {
                 self.perform_pca_projection(&padded_vectors, *n_components)?
-            },
+            }
             ProjectionAlgorithm::RandomProjection => {
                 self.perform_random_projection(&padded_vectors, target_dims)?
-            },
+            }
         };
 
         // Создаем проецированные узлы
@@ -122,6 +129,7 @@ impl VectorProjector {
             .collect();
 
         let execution_time = start_time.elapsed().as_millis() as u64;
+        let algorithm_name = format!("{:?}", algorithm);
 
         Ok(VectorProjection {
             nodes: projected_nodes,
@@ -131,7 +139,7 @@ impl VectorProjector {
                 original_dimensions: dim,
                 projected_dimensions: target_dims,
                 node_count: nodes.len(),
-                algorithm: format!("{:?}", algorithm),
+                algorithm: algorithm_name,
                 variance_explained: None, // В реальной системе будет вычислено для PCA
                 execution_time_ms: execution_time,
             },
@@ -148,7 +156,7 @@ impl VectorProjector {
     ) -> Result<Vec<Vec<f32>>, String> {
         // В реальной системе здесь будет вызов алгоритма t-SNE
         // Пока возвращаем простую проекцию (первые n координат)
-        
+
         let mut projected = Vec::new();
         for vector in vectors {
             let mut coords = Vec::new();
@@ -161,7 +169,7 @@ impl VectorProjector {
             }
             projected.push(coords);
         }
-        
+
         Ok(projected)
     }
 
@@ -175,7 +183,7 @@ impl VectorProjector {
     ) -> Result<Vec<Vec<f32>>, String> {
         // В реальной системе здесь будет вызов UMAP алгоритма
         // Пока возвращаем простую проекцию
-        
+
         let mut projected = Vec::new();
         for vector in vectors {
             let mut coords = Vec::new();
@@ -188,7 +196,7 @@ impl VectorProjector {
             }
             projected.push(coords);
         }
-        
+
         Ok(projected)
     }
 
@@ -200,7 +208,7 @@ impl VectorProjector {
     ) -> Result<Vec<Vec<f32>>, String> {
         // В реальной системе здесь будет вызов PCA
         // Пока возвращаем простую проекцию
-        
+
         let mut projected = Vec::new();
         for vector in vectors {
             let mut coords = Vec::new();
@@ -213,7 +221,7 @@ impl VectorProjector {
             }
             projected.push(coords);
         }
-        
+
         Ok(projected)
     }
 
@@ -225,7 +233,7 @@ impl VectorProjector {
     ) -> Result<Vec<Vec<f32>>, String> {
         // В реальной системе здесь будет случайная проекция
         // Пока возвращаем проекцию на первые target_dims координат
-        
+
         let mut projected = Vec::new();
         for vector in vectors {
             let mut coords = Vec::new();
@@ -238,7 +246,7 @@ impl VectorProjector {
             }
             projected.push(coords);
         }
-        
+
         Ok(projected)
     }
 
@@ -274,11 +282,11 @@ impl VectorProjector {
         // Определяем цвет на основе метки или других свойств
         if let Some(label) = node.properties.get("label").and_then(|v| v.as_str()) {
             match label.to_lowercase().as_str() {
-                "user" => "#6366f1", // indigo
-                "document" => "#10b981", // emerald
-                "image" => "#f59e0b", // amber
-                "video" => "#ef4444", // red
-                _ => "#8b5cf6", // violet
+                "user" => "#6366f1".to_string(),     // indigo
+                "document" => "#10b981".to_string(), // emerald
+                "image" => "#f59e0b".to_string(),    // amber
+                "video" => "#ef4444".to_string(),    // red
+                _ => "#8b5cf6".to_string(),          // violet
             }
         } else {
             // Цвет на основе ID
@@ -295,7 +303,10 @@ impl VectorProjector {
     }
 
     /// Создает HTML визуализацию проекции
-    pub fn create_html_visualization(&self, projection: &VectorProjection) -> Result<String, String> {
+    pub fn create_html_visualization(
+        &self,
+        projection: &VectorProjection,
+    ) -> Result<String, String> {
         if projection.dimensions != 2 && projection.dimensions != 3 {
             return Err("HTML visualization only supports 2D and 3D projections".to_string());
         }
@@ -535,12 +546,12 @@ impl VectorProjector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hybrid_storage::HybridPersistentStore;
+    use crate::storage::PersistentStore;
     use serde_json::json;
 
     #[test]
     fn test_vector_projector_creation() {
-        let store = Arc::new(HybridPersistentStore::open("./test_projection_data").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_projection_data").unwrap());
         let projector = VectorProjector::new(store);
 
         assert_eq!(projector.store.len().unwrap(), 0);
@@ -548,7 +559,7 @@ mod tests {
 
     #[test]
     fn test_tsne_projection() {
-        let store = Arc::new(HybridPersistentStore::open("./test_projection_data2").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_projection_data2").unwrap());
         let projector = VectorProjector::new(store);
 
         // Создаем тестовые узлы
@@ -572,9 +583,9 @@ mod tests {
         }
 
         let node_ids = vec![1, 2];
-        let algorithm = ProjectionAlgorithm::TSNE { 
-            perplexity: 5.0, 
-            learning_rate: 100.0 
+        let algorithm = ProjectionAlgorithm::TSNE {
+            perplexity: 5.0,
+            learning_rate: 100.0,
         };
 
         let result = projector.create_projection(&node_ids, algorithm, 2);
@@ -587,7 +598,7 @@ mod tests {
 
     #[test]
     fn test_umap_projection() {
-        let store = Arc::new(HybridPersistentStore::open("./test_projection_data3").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_projection_data3").unwrap());
         let projector = VectorProjector::new(store);
 
         // Создаем тестовые узлы
@@ -617,9 +628,9 @@ mod tests {
         }
 
         let node_ids = vec![1, 2, 3];
-        let algorithm = ProjectionAlgorithm::UMAP { 
-            n_neighbors: 2, 
-            min_dist: 0.1 
+        let algorithm = ProjectionAlgorithm::UMAP {
+            n_neighbors: 2,
+            min_dist: 0.1,
         };
 
         let result = projector.create_projection(&node_ids, algorithm, 2);
@@ -632,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_pca_projection() {
-        let store = Arc::new(HybridPersistentStore::open("./test_projection_data4").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_projection_data4").unwrap());
         let projector = VectorProjector::new(store);
 
         // Создаем тестовые узлы
@@ -668,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_export_to_json() {
-        let store = Arc::new(HybridPersistentStore::open("./test_projection_data5").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_projection_data5").unwrap());
         let projector = VectorProjector::new(store);
 
         // Создаем минимальную проекцию для тестирования

@@ -1,5 +1,5 @@
 //! Графовый визуализатор для ToroidalDB
-//! 
+//!
 //! Предоставляет встроенный графовый визуализатор с поддержкой:
 //! - Интерактивных графов
 //! - Топологических свойств
@@ -129,7 +129,7 @@ impl GraphVisualizer {
         layout: &LayoutAlgorithm,
     ) -> Result<GraphNode, String> {
         let (x, y) = self.position_for_layout(node, layout)?;
-        
+
         Ok(GraphNode {
             id: node.id,
             label: self.get_node_label(node),
@@ -143,7 +143,11 @@ impl GraphVisualizer {
     }
 
     /// Вычисляет позицию узла в зависимости от выбранного алгоритма
-    fn position_for_layout(&self, node: &Node, layout: &LayoutAlgorithm) -> Result<(f32, f32), String> {
+    fn position_for_layout(
+        &self,
+        node: &Node,
+        layout: &LayoutAlgorithm,
+    ) -> Result<(f32, f32), String> {
         match layout {
             LayoutAlgorithm::ForceDirected => {
                 // Простая реализация - случайное распределение
@@ -152,21 +156,21 @@ impl GraphVisualizer {
                 let x = (hash % 1000) as f32 / 1000.0;
                 let y = ((hash / 1000) % 1000) as f32 / 1000.0;
                 Ok((x, y))
-            },
+            }
             LayoutAlgorithm::Circular => {
                 // Распределение по кругу
                 let angle = 2.0 * std::f32::consts::PI * node.id as f32 / 100.0; // Предполагаем 100 узлов
                 let x = angle.cos();
                 let y = angle.sin();
                 Ok((x, y))
-            },
+            }
             LayoutAlgorithm::Grid => {
                 // Распределение по сетке
                 let size = (self.store.len().unwrap_or(100) as f32).sqrt() as u64;
                 let x = (node.id % size) as f32;
                 let y = (node.id / size) as f32;
                 Ok((x, y))
-            },
+            }
             LayoutAlgorithm::Hierarchical => {
                 // Иерархическое расположение (простая реализация)
                 let level = node.id % 5; // 5 уровней
@@ -174,7 +178,7 @@ impl GraphVisualizer {
                 let x = pos_in_level as f32 * 0.2;
                 let y = level as f32 * 0.2;
                 Ok((x, y))
-            },
+            }
             LayoutAlgorithm::Topological => {
                 // Топологическое расположение на основе векторных данных
                 if node.vector.len() >= 2 {
@@ -188,7 +192,7 @@ impl GraphVisualizer {
                     let y = ((hash / 1000) % 1000) as f32 / 1000.0;
                     Ok((x, y))
                 }
-            },
+            }
         }
     }
 
@@ -197,11 +201,11 @@ impl GraphVisualizer {
         // Определяем цвет на основе метки или других свойств
         if let Some(label) = node.properties.get("label").and_then(|v| v.as_str()) {
             match label.to_lowercase().as_str() {
-                "user" => "#6366f1", // indigo
-                "document" => "#10b981", // emerald
-                "image" => "#f59e0b", // amber
-                "video" => "#ef4444", // red
-                _ => "#8b5cf6", // violet
+                "user" => "#6366f1".to_string(),     // indigo
+                "document" => "#10b981".to_string(), // emerald
+                "image" => "#f59e0b".to_string(),    // amber
+                "video" => "#ef4444".to_string(),    // red
+                _ => "#8b5cf6".to_string(),          // violet
             }
         } else {
             // Цвет на основе ID
@@ -214,11 +218,11 @@ impl GraphVisualizer {
     /// Вычисляет цвет ребра на основе типа отношения
     fn get_edge_color(&self, relation_type: &str) -> String {
         match relation_type.to_lowercase().as_str() {
-            "friend" | "follows" => "#6366f1", // indigo
-            "likes" | "rates" => "#ec4899", // pink
-            "connects" | "related" => "#8b5cf6", // violet
-            "contains" | "has" => "#10b981", // emerald
-            _ => "#94a3b8", // slate
+            "friend" | "follows" => "#6366f1".to_string(), // indigo
+            "likes" | "rates" => "#ec4899".to_string(),    // pink
+            "connects" | "related" => "#8b5cf6".to_string(), // violet
+            "contains" | "has" => "#10b981".to_string(),   // emerald
+            _ => "#94a3b8".to_string(),                    // slate
         }
     }
 
@@ -228,7 +232,7 @@ impl GraphVisualizer {
         let base_size = 10.0;
         let edge_factor = node.edges.len() as f32 * 0.5;
         let property_factor = if node.properties.is_null() { 0.0 } else { 1.0 };
-        
+
         base_size + edge_factor + property_factor
     }
 
@@ -248,30 +252,34 @@ impl GraphVisualizer {
     fn hash_node_position(&self, node_id: u64) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         node_id.hash(&mut hasher);
         hasher.finish()
     }
 
     /// Вычисляет метаданные визуализации
-    fn compute_metadata(&self, nodes: &[GraphNode], edges: &[GraphEdge]) -> Result<VisualizationMetadata, String> {
+    fn compute_metadata(
+        &self,
+        nodes: &[GraphNode],
+        edges: &[GraphEdge],
+    ) -> Result<VisualizationMetadata, String> {
         let node_count = nodes.len();
         let edge_count = edges.len();
-        
+
         // Вычисляем плотность графа
         let density = if node_count > 1 {
             (2.0 * edge_count as f32) / ((node_count * (node_count - 1)) as f32)
         } else {
             0.0
         };
-        
+
         // Вычисляем коэффициент кластеризации (упрощённо)
         let clustering_coefficient = self.approximate_clustering_coefficient(nodes, edges);
-        
+
         // Вычисляем количество компонентов связности
         let connected_components = self.count_connected_components(nodes, edges);
-        
+
         Ok(VisualizationMetadata {
             node_count,
             edge_count,
@@ -297,17 +305,23 @@ impl GraphVisualizer {
             let neighbors: Vec<u64> = edges
                 .iter()
                 .filter(|e| e.source == node.id || e.target == node.id)
-                .map(|e| if e.source == node.id { e.target } else { e.source })
+                .map(|e| {
+                    if e.source == node.id {
+                        e.target
+                    } else {
+                        e.source
+                    }
+                })
                 .collect();
 
             for i in 0..neighbors.len() {
                 for j in (i + 1)..neighbors.len() {
                     triples += 1;
                     // Проверяем, связаны ли соседи напрямую
-                    if edges.iter().any(|e| 
-                        (e.source == neighbors[i] && e.target == neighbors[j]) ||
-                        (e.source == neighbors[j] && e.target == neighbors[i])
-                    ) {
+                    if edges.iter().any(|e| {
+                        (e.source == neighbors[i] && e.target == neighbors[j])
+                            || (e.source == neighbors[j] && e.target == neighbors[i])
+                    }) {
                         triangles += 1;
                     }
                 }
@@ -343,14 +357,14 @@ impl GraphVisualizer {
     /// Выполняет DFS для маркировки компонента связности
     fn dfs_mark_component(&self, start_node: u64, edges: &[GraphEdge], visited: &mut HashSet<u64>) {
         let mut stack = vec![start_node];
-        
+
         while let Some(current) = stack.pop() {
             if visited.contains(&current) {
                 continue;
             }
-            
+
             visited.insert(current);
-            
+
             // Добавляем соседей в стек
             for edge in edges {
                 if edge.source == current && !visited.contains(&edge.target) {
@@ -407,12 +421,12 @@ impl GraphVisualizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hybrid_storage::HybridPersistentStore;
+    use crate::storage::PersistentStore;
     use serde_json::json;
 
     #[test]
     fn test_graph_visualizer_creation() {
-        let store = Arc::new(HybridPersistentStore::open("./test_data_vis").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_data_vis").unwrap());
         let visualizer = GraphVisualizer::new(store);
 
         assert_eq!(visualizer.store.len().unwrap(), 0);
@@ -420,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_node_to_graph_node() {
-        let store = Arc::new(HybridPersistentStore::open("./test_data_vis2").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_data_vis2").unwrap());
         let visualizer = GraphVisualizer::new(store);
 
         let node = Node {
@@ -430,7 +444,9 @@ mod tests {
             edges: vec![],
         };
 
-        let graph_node = visualizer.node_to_graph_node(&node, &LayoutAlgorithm::ForceDirected).unwrap();
+        let graph_node = visualizer
+            .node_to_graph_node(&node, &LayoutAlgorithm::ForceDirected)
+            .unwrap();
         assert_eq!(graph_node.id, 1);
         assert_eq!(graph_node.label, "Test Node");
         assert_eq!(graph_node.color, "#6366f1"); // indigo для user
@@ -438,7 +454,7 @@ mod tests {
 
     #[test]
     fn test_layout_algorithms() {
-        let store = Arc::new(HybridPersistentStore::open("./test_data_vis3").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_data_vis3").unwrap());
         let visualizer = GraphVisualizer::new(store);
 
         let node = Node {
@@ -468,7 +484,7 @@ mod tests {
 
     #[test]
     fn test_visualization_metadata() {
-        let store = Arc::new(HybridPersistentStore::open("./test_data_vis4").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_data_vis4").unwrap());
         let visualizer = GraphVisualizer::new(store);
 
         let nodes = vec![
@@ -494,16 +510,14 @@ mod tests {
             },
         ];
 
-        let edges = vec![
-            GraphEdge {
-                source: 1,
-                target: 2,
-                label: "connected".to_string(),
-                weight: 0.8,
-                color: "#94a3b8".to_string(),
-                properties: json!({}),
-            }
-        ];
+        let edges = vec![GraphEdge {
+            source: 1,
+            target: 2,
+            label: "connected".to_string(),
+            weight: 0.8,
+            color: "#94a3b8".to_string(),
+            properties: json!({}),
+        }];
 
         let metadata = visualizer.compute_metadata(&nodes, &edges).unwrap();
         assert_eq!(metadata.node_count, 2);

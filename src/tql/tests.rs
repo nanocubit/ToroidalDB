@@ -181,6 +181,7 @@ mod tql_integration_tests {
             transaction: None,
             limit: 10,
             distributed: true,
+            ..Default::default()
         };
 
         // Выполняем распределенный запрос
@@ -280,6 +281,7 @@ mod tql_integration_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         let execution_result = QueryExecutor::execute_query(&store, query).await;

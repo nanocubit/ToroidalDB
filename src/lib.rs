@@ -24,16 +24,15 @@ pub mod topology;
 pub mod tql;
 pub mod visualization;
 
-// Re-export commonly used types
+// pub mod storage; // legacy — заменён на hybrid_storage с toroidal-storage
 pub use core::{Cache, EdgePool, LruKCache, NodePool, ObjectPool, PoolConfig};
 pub use embedding::{convert_to_matryoshka, EmbeddingModel, EmbeddingService};
-#[cfg(feature = "embeddings")]
-pub use onnx_embedding::{OnnxEmbeddingConfig, OnnxEmbeddingService};
 pub use hybrid_storage::{HybridPersistentStore, Node};
 pub use index::{
     create_index, HnswIndex, HybridIndex, HybridIndexConfig, HybridSearchResult, IndexConfig,
     IndexRecommendation, IndexType, IvfIndex, MetricType, QueryCharacteristics, SearchFilters,
     VectorIndex,
 };
-pub use storage::{Node as LegacyNode, PersistentStore};
+#[cfg(feature = "embeddings")]
+pub use onnx_embedding::{OnnxEmbeddingConfig, OnnxEmbeddingService};
 pub use tql::{AggregationFunction, Query};

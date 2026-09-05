@@ -90,6 +90,7 @@ mod distributed_execution_tests {
             transaction: None,
             limit: 15,
             distributed: true,
+            ..Default::default()
         };
 
         // Выполняем распределенный запрос
@@ -214,6 +215,7 @@ mod distributed_execution_tests {
             transaction: None,
             limit: 25,
             distributed: true,
+            ..Default::default()
         };
 
         // Выполняем запрос
@@ -304,6 +306,7 @@ mod distributed_execution_tests {
             transaction: None,
             limit: 20,
             distributed: false,
+            ..Default::default()
         };
 
         // Локальное выполнение
@@ -320,6 +323,10 @@ mod distributed_execution_tests {
         // Распределенное выполнение
         let dist_query = Query {
             distributed: true,
+            from_stream: None,
+            group_by: Vec::new(),
+            having: None,
+            analytics: Vec::new(),
             ..query.clone()
         };
 

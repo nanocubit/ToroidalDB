@@ -175,8 +175,8 @@ impl MCPHandler {
     pub async fn validate_config(&self) -> Result<bool, String> {
         let config = self.config.read().await;
 
-        // Проверяем, что порт в допустимом диапазоне
-        if config.server_port < 1024 || config.server_port > 65535 {
+        // Проверяем, что порт в допустимом диапазоне (верхняя граница гарантирована u16)
+        if config.server_port < 1024 {
             return Err("Server port must be between 1024 and 65535".to_string());
         }
 

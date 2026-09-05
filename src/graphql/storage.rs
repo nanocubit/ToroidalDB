@@ -1,8 +1,4 @@
-pub mod schema;
-pub mod server;
-
-pub use schema::*;
-pub use server::*;
+use super::schema::*;
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -225,7 +221,7 @@ impl MockGraphStorage {
         Arc::new(self)
     }
 
-    pub fn set_metrics(&self, metrics: TopologyMetrics) {
+    pub async fn set_metrics(&self, metrics: TopologyMetrics) {
         let mut m = self.metrics.write().await;
         *m = metrics;
     }

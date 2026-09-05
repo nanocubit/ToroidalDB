@@ -331,7 +331,7 @@ mod tests {
         let cache = Cache::new(3, Duration::from_secs(60));
 
         cache.put("key1", "value1");
-        assert_eq!(cache.get(&"key1"), Some("value1".to_string()));
+        assert_eq!(cache.get(&"key1"), Some("value1"));
         assert_eq!(cache.size(), 1);
     }
 
@@ -344,8 +344,8 @@ mod tests {
         cache.put("key3", "value3");
 
         assert_eq!(cache.get(&"key1"), None);
-        assert_eq!(cache.get(&"key2"), Some("value2".to_string()));
-        assert_eq!(cache.get(&"key3"), Some("value3".to_string()));
+        assert_eq!(cache.get(&"key2"), Some("value2"));
+        assert_eq!(cache.get(&"key3"), Some("value3"));
     }
 
     #[test]
@@ -353,7 +353,7 @@ mod tests {
         let cache = Cache::new(10, Duration::from_millis(50));
 
         cache.put("key1", "value1");
-        assert_eq!(cache.get(&"key1"), Some("value1".to_string()));
+        assert_eq!(cache.get(&"key1"), Some("value1"));
 
         thread::sleep(Duration::from_millis(100));
 
@@ -381,6 +381,6 @@ mod tests {
         cache.get(&"key1");
         cache.get(&"key1");
 
-        assert_eq!(cache.get(&"key1"), Some("value1".to_string()));
+        assert_eq!(cache.get(&"key1"), Some("value1"));
     }
 }

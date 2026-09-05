@@ -3,13 +3,15 @@ use std::time::Instant;
 use tokio;
 
 // Импорты компонентов вашего проекта
-use crate::hybrid_storage::{HybridPersistentStore, Node};
-use crate::tql::ast::{MatchClause, NodePattern, Query, Transaction, TransactionOperation};
-use crate::tql::coordinator::{DistributedExecutor, QueryCoordinator};
-use crate::tql::executor::QueryExecutor;
-use crate::tql::parser;
-use crate::tql::transaction::TransactionManager;
 use serde_json::json;
+use toroidal_db::hybrid_storage::{HybridPersistentStore, Node};
+use toroidal_db::tql::ast::{
+    MatchClause, NodePattern, PropertyValue, Query, Transaction, TransactionOperation,
+};
+use toroidal_db::tql::coordinator::{DistributedExecutor, QueryCoordinator};
+use toroidal_db::tql::executor::QueryExecutor;
+use toroidal_db::tql::parser;
+use toroidal_db::tql::transaction::TransactionManager;
 
 #[tokio::main]
 async fn main() {
@@ -38,12 +40,12 @@ async fn main() {
 
 // --- Вспомогательные функции ---
 
-fn setup_store(path: &str) -> Arc<PersistentStore> {
+fn setup_store(path: &str) -> Arc<HybridPersistentStore> {
     let _ = std::fs::remove_dir_all(path); // Очистка на случай старого мусора
-    Arc::new(PersistentStore::open(path).expect("Не удалось открыть хранилище"))
+    Arc::new(HybridPersistentStore::open(path).expect("Не удалось открыть хранилище"))
 }
 
-fn cleanup_store(store: Arc<PersistentStore>, path: &str) {
+fn cleanup_store(store: Arc<HybridPersistentStore>, path: &str) {
     // Явно закрываем хранилище перед удалением папки (важно для macOS)
     drop(store);
     let _ = std::fs::remove_dir_all(path);
@@ -241,8 +243,8 @@ async fn scenario_distributed() {
     for (shard_idx, shard) in shards.iter().enumerate() {
         for i in 1..=10 {
             let node_id = (shard_idx * 10) + i + 1;
-            let node = crate::hybrid_storage::Node {
-                id: node_id,
+            let node = Node {
+                id: node_id as u64,
                 vector: vec![node_id as f32 * 0.01, 0.5],
                 properties: json!({"id": node_id, "shard": shard_idx + 1, "name": format!("node_{}", node_id)}),
                 edges: vec![],
@@ -275,6 +277,7 @@ async fn scenario_distributed() {
         transaction: None,
         limit: 15,
         distributed: true,
+        ..Default::default()
     };
 
     let start = Instant::now();
@@ -301,16 +304,14 @@ async fn scenario_transactions() {
     let store = setup_store("./transaction_test_data");
 
     let transaction = Transaction {
-        operations: vec![TransactionOperation::CreateNode(
-            crate::tql::ast::NodePattern {
-                alias: "new_user".to_string(),
-                label: "User".to_string(),
-                properties: Some(vec![(
-                    "name".to_string(),
-                    crate::tql::ast::PropertyValue::String("Test User".to_string()),
-                )]),
-            },
-        )],
+        operations: vec![TransactionOperation::CreateNode(NodePattern {
+            alias: "new_user".to_string(),
+            label: "User".to_string(),
+            properties: Some(vec![(
+                "name".to_string(),
+                PropertyValue::String("Test User".to_string()),
+            )]),
+        })],
     };
 
     let result = TransactionManager::execute_transaction(&store, transaction).await;

@@ -350,22 +350,22 @@ fn text_to_chunks(text: &str, chunk_size: usize) -> Vec<String> {
 async fn generate_embedding(text: &str, dimension: usize) -> Result<Vec<f32>, String> {
     // Используем multilingual-e5-small модель для генерации эмбеддингов
     let service = get_embedding_service();
-    
+
     // Генерируем эмбеддинг как passage (не query)
     let mut embedding = service
         .generate_embedding(text, false)
         .await
         .map_err(|e| format!("Embedding generation failed: {}", e))?;
-    
+
     // Конвертируем в нужную размерность Matryoshka если нужно
     if embedding.len() != dimension {
         embedding = crate::embedding::convert_to_matryoshka(&embedding, dimension);
     }
-    
+
     Ok(embedding)
 }
 
-fn generate_node_id() -> u64 {
+pub fn generate_node_id() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)

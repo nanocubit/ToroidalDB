@@ -101,14 +101,14 @@ impl HybridIndex {
                 if let Some(ref target_class) = filters.homotopy_class {
                     let matching_ids = homotopy_idx.get_nodes_in_class(target_class);
 
-                    candidates.retain(|id, _| matching_ids.contains(id));
+                    candidates.retain(|id, _| matching_ids.contains(&(*id as u64)));
                 }
             }
 
             if let Some(ref topo_idx) = self.topological_index {
                 if let Some(ref features) = filters.topological_features {
                     for (id, candidate) in candidates.iter_mut() {
-                        if let Some(feature_vec) = topo_idx.get_features(*id) {
+                        if let Some(feature_vec) = topo_idx.get_features(*id as u64) {
                             let similarity =
                                 self.compute_feature_similarity(features, &feature_vec);
                             candidate.topological_score = similarity;

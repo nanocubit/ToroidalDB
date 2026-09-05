@@ -1,9 +1,6 @@
-pub mod schema;
+use super::schema::*;
 
-pub use schema::*;
-
-use async_graphql::Request as GqlRequest;
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+use async_graphql::{Request as GqlRequest, Response as GqlResponse};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -24,12 +21,16 @@ impl GraphQLState {
     }
 }
 
-async fn graphql_handler(
-    State(state): State<Arc<RwLock<GraphQLState>>>,
-    req: GraphQLRequest,
-) -> GraphQLResponse {
+async fn graphql_handler(State(state): State<Arc<RwLock<GraphQLState>>>, body: String) -> Response {
+    let req: GqlRequest = match serde_json::from_str(&body) {
+        Ok(req) => req,
+        Err(_) => {
+            return (StatusCode::BAD_REQUEST, "invalid JSON body").into_response();
+        }
+    };
     let state = state.read().await;
-    state.schema.execute(req.into_inner()).await.into()
+    let resp: GqlResponse = state.schema.execute(req).await;
+    Json(serde_json::to_value(resp).unwrap_or(serde_json::Value::Null)).into_response()
 }
 
 async fn graphql_playground() -> impl IntoResponse {
@@ -51,8 +52,7 @@ async fn graphql_playground() -> impl IntoResponse {
             });
         </script>
     </body>
-    </html>
-    "#;
+    </html>"#;
 
     (StatusCode::OK, [("content-type", "text/html")], html)
 }
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn test_create_schema() {
         let schema = create_schema();
-        assert!(!schema.schema().as_str().is_empty());
+        assert!(!schema.sdl().is_empty());
     }
 
     #[test]

@@ -1,14 +1,15 @@
 use crate::hybrid_storage::HybridPersistentStore;
 use crate::math::MatryoshkaDim;
 use crate::tql::ast::{
-    AggregationField, AggregationFunction, OrderByClause, Query, WhereCondition,
+    AggregationField, AggregationFunction, BackendHint, OrderByClause, Query, WhereCondition,
 };
+use crate::tql::cost_optimizer::CostBasedOptimizer;
 use crate::tql::graph::GraphOperations;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     pub id: u64,
     pub score: f32,
@@ -32,8 +33,12 @@ impl QueryExecutor {
         store: &HybridPersistentStore,
         query: Query,
     ) -> Result<Vec<QueryResult>, String> {
+        // Оптимизируем запрос через CostBasedOptimizer
+        let optimizer = CostBasedOptimizer::new();
+        let optimized_query = optimizer.optimize_query(&query);
+
         // Проверяем, есть ли транзакция в запросе
-        if let Some(transaction) = &query.transaction {
+        if let Some(transaction) = &optimized_query.transaction {
             // Выполняем транзакцию
             match Self::execute_transaction(store, transaction.clone()).await {
                 Ok(()) => {
@@ -45,22 +50,22 @@ impl QueryExecutor {
         }
 
         // Проверяем, есть ли агрегации в запросе
-        if !query.aggregation_fields.is_empty() {
+        if !optimized_query.aggregation_fields.is_empty() {
             // Выполняем агрегации отдельно, чтобы избежать рекурсии
-            return Self::execute_aggregations_only(store, query).await;
+            return Self::execute_aggregations_only(store, optimized_query).await;
         }
 
         // Проверяем, есть ли специфичные для тороидальной топологии клаузы
         if let (Some(_match_clause), Some(connected_clause), Some(within_clause)) = (
-            &query.match_clause,
-            &query.connected_clause,
-            &query.within_clause,
+            &optimized_query.match_clause,
+            &optimized_query.connected_clause,
+            &optimized_query.within_clause,
         ) {
             // Клонируем необходимые поля чтобы избежать move
             let connected_clause = connected_clause.clone();
             let within_clause = within_clause.clone();
-            let query_clone = query.clone(); // Клонируем весь query чтобы избежать move
-                                             // Выполняем специфичный для тороидальной топологии запрос
+            let query_clone = optimized_query.clone();
+            // Выполняем специфичный для тороидальной топологии запрос
             return Self::execute_connected_query(
                 store,
                 query_clone,
@@ -71,7 +76,7 @@ impl QueryExecutor {
         }
 
         // Extract query vector from WHERE clause if present
-        let (search_vector, threshold) = Self::extract_query_vector(&query)?;
+        let (search_vector, threshold) = Self::extract_query_vector(&optimized_query)?;
 
         // Вызываем оптимизированный matryoshka_search
         let search_results = store
@@ -90,7 +95,7 @@ impl QueryExecutor {
         }
 
         // Apply ORDER BY if present
-        if let Some(ref order_by) = query.order_by {
+        if let Some(ref order_by) = optimized_query.order_by {
             query_results.sort_by(|a, b| {
                 if order_by.ascending {
                     Self::compare_by_field(a, b, order_by)
@@ -104,23 +109,37 @@ impl QueryExecutor {
         }
 
         // Apply LIMIT
-        query_results.truncate(query.limit as usize);
+        query_results.truncate(optimized_query.limit as usize);
 
         Ok(query_results)
     }
 
     // Extract query vector and threshold from WHERE clause
     fn extract_query_vector(query: &Query) -> Result<(Vec<f32>, f32), String> {
-        // Check if there's a TOROIDALDISTANCE condition in the WHERE clause
-        if let Some(WhereCondition::ToroidalDistance { field: _, threshold }) = &query.where_clause {
-            // For now, use a dummy vector since we don't have a reference vector in the WHERE clause
-            // In a future enhancement, TQL could support: TOROIDALDISTANCE(field, query_vector, threshold)
-            let dummy_vector = vec![0.5f32; 384];
-            return Ok((dummy_vector, *threshold));
+        // 1. Use query_vector from Query struct if provided (runtime)
+        if let Some(ref qv) = query.query_vector {
+            let threshold = match &query.where_clause {
+                Some(WhereCondition::ToroidalDistance { threshold, .. }) => *threshold,
+                _ => 0.3,
+            };
+            return Ok((qv.clone(), threshold));
         }
 
-        // No WHERE clause with vector search - use default threshold
-        Ok((vec![0.5f32; 384], 0.3))
+        // 2. Fallback: check WHERE clause for threshold only
+        if let Some(WhereCondition::ToroidalDistance {
+            field: _,
+            threshold,
+        }) = &query.where_clause
+        {
+            // No query vector provided — use properties from a random stored node as best-effort
+            // This is a degraded mode; the proper way is to pass query_vector via API
+            return Err(
+                "TOROIDALDISTANCE requires a query vector. Pass it via the query_vector field or API parameter.".to_string()
+            );
+        }
+
+        // No WHERE clause with vector search - use default
+        Err("No TOROIDALDISTANCE condition in query".to_string())
     }
 
     // Выполнение агрегаций

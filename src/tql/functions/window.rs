@@ -122,7 +122,13 @@ impl WindowFunctionExecutor {
                         serde_json::json!((pos + 1) as i64)
                     }
                     WindowFunction::DenseRank => {
-                        let unique_rows: Vec<_> = partition.iter().unique().collect();
+                        let unique_rows: Vec<_> = {
+                            let mut seen = std::collections::HashSet::new();
+                            partition
+                                .iter()
+                                .filter(|r| seen.insert(*r))
+                                .collect::<Vec<_>>()
+                        };
                         let pos = unique_rows.iter().position(|r| *r == row).unwrap_or(0);
                         serde_json::json!((pos + 1) as i64)
                     }
@@ -150,20 +156,16 @@ impl WindowFunctionExecutor {
                             serde_json::Value::Null
                         }
                     }
-                    WindowFunction::FirstValue(field) => {
-                        partition
-                            .first()
-                            .and_then(|row| row.iter().find(|v| !v.is_null()))
-                            .cloned()
-                            .unwrap_or(serde_json::Value::Null)
-                    }
-                    WindowFunction::LastValue(field) => {
-                        partition
-                            .last()
-                            .and_then(|row| row.iter().find(|v| !v.is_null()))
-                            .cloned()
-                            .unwrap_or(serde_json::Value::Null)
-                    }
+                    WindowFunction::FirstValue(field) => partition
+                        .first()
+                        .and_then(|row| row.iter().find(|v| !v.is_null()))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                    WindowFunction::LastValue(field) => partition
+                        .last()
+                        .and_then(|row| row.iter().find(|v| !v.is_null()))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
                     WindowFunction::Sum(field) => {
                         let sum: f64 = partition
                             .iter()

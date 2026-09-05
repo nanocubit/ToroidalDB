@@ -1,5 +1,5 @@
 //! # Space Manager для TQL v3.0
-//! 
+//!
 //! Управление пространствами данных - контейнерами для узлов, рёбер и стримов
 
 use crate::tql::ast::*;
@@ -37,7 +37,7 @@ pub struct StreamDefinition {
 impl SpaceManager {
     pub fn new() -> Self {
         let mut spaces = HashMap::new();
-        
+
         // Создаём default пространство
         let default_space = SpaceDefinition {
             name: "default".to_string(),
@@ -53,9 +53,9 @@ impl SpaceManager {
             created_at: get_timestamp(),
             updated_at: get_timestamp(),
         };
-        
+
         spaces.insert("default".to_string(), default_space);
-        
+
         Self {
             spaces: Arc::new(RwLock::new(spaces)),
             current_space: Arc::new(RwLock::new("default".to_string())),
@@ -65,32 +65,47 @@ impl SpaceManager {
     /// Создаёт новое пространство
     pub fn create_space(&self, space_def: SpaceDef) -> Result<(), String> {
         let mut spaces = self.spaces.write().map_err(|e| e.to_string())?;
-        
+
         if spaces.contains_key(&space_def.name) {
             return Err(format!("Space '{}' already exists", space_def.name));
         }
-        
+
         let now = get_timestamp();
-        
+
         // Создаём пространство
         let space = SpaceDefinition {
             name: space_def.name.clone(),
-            node_types: space_def.nodes.into_iter().map(|n| (n.name.clone(), n)).collect(),
-            edge_types: space_def.edges.into_iter().map(|e| (e.name.clone(), e)).collect(),
-            streams: space_def.streams.into_iter().map(|s| {
-                (s.name.clone(), StreamDefinition {
-                    name: s.name.clone(),
-                    topic: s.topic,
-                    schema: s.schema,
-                    retention: s.retention,
-                    created_at: now,
+            node_types: space_def
+                .nodes
+                .into_iter()
+                .map(|n| (n.name.clone(), n))
+                .collect(),
+            edge_types: space_def
+                .edges
+                .into_iter()
+                .map(|e| (e.name.clone(), e))
+                .collect(),
+            streams: space_def
+                .streams
+                .into_iter()
+                .map(|s| {
+                    (
+                        s.name.clone(),
+                        StreamDefinition {
+                            name: s.name.clone(),
+                            topic: s.topic,
+                            schema: s.schema,
+                            retention: s.retention,
+                            created_at: now,
+                        },
+                    )
                 })
-            }).collect(),
+                .collect(),
             config: space_def.config,
             created_at: now,
             updated_at: now,
         };
-        
+
         spaces.insert(space_def.name, space);
         Ok(())
     }
@@ -103,7 +118,10 @@ impl SpaceManager {
 
     /// Получает текущее пространство
     pub fn get_current_space(&self) -> String {
-        self.current_space.read().map(|s| s.clone()).unwrap_or_else(|_| "default".to_string())
+        self.current_space
+            .read()
+            .map(|s| s.clone())
+            .unwrap_or_else(|_| "default".to_string())
     }
 
     /// Устанавливает текущее пространство
@@ -113,7 +131,7 @@ impl SpaceManager {
             return Err(format!("Space '{}' does not exist", name));
         }
         drop(spaces);
-        
+
         let mut current = self.current_space.write().map_err(|e| e.to_string())?;
         *current = name.to_string();
         Ok(())
@@ -122,48 +140,60 @@ impl SpaceManager {
     /// Добавляет тип узла в пространство
     pub fn add_node_type(&self, space_name: &str, node_type: NodeTypeDef) -> Result<(), String> {
         let mut spaces = self.spaces.write().map_err(|e| e.to_string())?;
-        
-        let space = spaces.get_mut(space_name)
+
+        let space = spaces
+            .get_mut(space_name)
             .ok_or_else(|| format!("Space '{}' not found", space_name))?;
-        
+
         if space.node_types.contains_key(&node_type.name) {
-            return Err(format!("Node type '{}' already exists in space '{}'", node_type.name, space_name));
+            return Err(format!(
+                "Node type '{}' already exists in space '{}'",
+                node_type.name, space_name
+            ));
         }
-        
+
         space.node_types.insert(node_type.name.clone(), node_type);
         space.updated_at = get_timestamp();
-        
+
         Ok(())
     }
 
     /// Добавляет тип ребра в пространство
     pub fn add_edge_type(&self, space_name: &str, edge_type: EdgeTypeDef) -> Result<(), String> {
         let mut spaces = self.spaces.write().map_err(|e| e.to_string())?;
-        
-        let space = spaces.get_mut(space_name)
+
+        let space = spaces
+            .get_mut(space_name)
             .ok_or_else(|| format!("Space '{}' not found", space_name))?;
-        
+
         if space.edge_types.contains_key(&edge_type.name) {
-            return Err(format!("Edge type '{}' already exists in space '{}'", edge_type.name, space_name));
+            return Err(format!(
+                "Edge type '{}' already exists in space '{}'",
+                edge_type.name, space_name
+            ));
         }
-        
+
         space.edge_types.insert(edge_type.name.clone(), edge_type);
         space.updated_at = get_timestamp();
-        
+
         Ok(())
     }
 
     /// Создаёт стрим в пространстве
     pub fn create_stream(&self, space_name: &str, stream_def: StreamDef) -> Result<(), String> {
         let mut spaces = self.spaces.write().map_err(|e| e.to_string())?;
-        
-        let space = spaces.get_mut(space_name)
+
+        let space = spaces
+            .get_mut(space_name)
             .ok_or_else(|| format!("Space '{}' not found", space_name))?;
-        
+
         if space.streams.contains_key(&stream_def.name) {
-            return Err(format!("Stream '{}' already exists in space '{}'", stream_def.name, space_name));
+            return Err(format!(
+                "Stream '{}' already exists in space '{}'",
+                stream_def.name, space_name
+            ));
         }
-        
+
         let now = get_timestamp();
         let stream = StreamDefinition {
             name: stream_def.name.clone(),
@@ -172,20 +202,21 @@ impl SpaceManager {
             retention: stream_def.retention,
             created_at: now,
         };
-        
+
         space.streams.insert(stream_def.name, stream);
         space.updated_at = now;
-        
+
         Ok(())
     }
 
     /// Изменяет пространство
     pub fn alter_space(&self, alter: AlterSpace) -> Result<(), String> {
         let mut spaces = self.spaces.write().map_err(|e| e.to_string())?;
-        
-        let space = spaces.get_mut(&alter.name)
+
+        let space = spaces
+            .get_mut(&alter.name)
             .ok_or_else(|| format!("Space '{}' not found", alter.name))?;
-        
+
         for operation in alter.operations {
             match operation {
                 AlterOperation::AddNode(node_type) => {
@@ -205,14 +236,17 @@ impl SpaceManager {
                         nt.fields.push(field);
                     }
                 }
-                AlterOperation::DropField { node_type, field_name } => {
+                AlterOperation::DropField {
+                    node_type,
+                    field_name,
+                } => {
                     if let Some(nt) = space.node_types.get_mut(&node_type) {
                         nt.fields.retain(|f| f.name != field_name);
                     }
                 }
             }
         }
-        
+
         space.updated_at = get_timestamp();
         Ok(())
     }
@@ -228,13 +262,13 @@ impl SpaceManager {
         if name == "default" {
             return Err("Cannot drop default space".to_string());
         }
-        
+
         let mut spaces = self.spaces.write().map_err(|e| e.to_string())?;
-        
+
         if !spaces.contains_key(name) {
             return Err(format!("Space '{}' does not exist", name));
         }
-        
+
         spaces.remove(name);
         Ok(())
     }
@@ -243,10 +277,11 @@ impl SpaceManager {
     pub fn validate_node_type(&self, node_type_name: &str) -> Result<bool, String> {
         let current_space = self.get_current_space();
         let spaces = self.spaces.read().map_err(|e| e.to_string())?;
-        
-        let space = spaces.get(&current_space)
+
+        let space = spaces
+            .get(&current_space)
             .ok_or_else(|| format!("Current space '{}' not found", current_space))?;
-        
+
         Ok(space.node_types.contains_key(node_type_name))
     }
 
@@ -254,10 +289,11 @@ impl SpaceManager {
     pub fn validate_edge_type(&self, edge_type_name: &str) -> Result<bool, String> {
         let current_space = self.get_current_space();
         let spaces = self.spaces.read().map_err(|e| e.to_string())?;
-        
-        let space = spaces.get(&current_space)
+
+        let space = spaces
+            .get(&current_space)
             .ok_or_else(|| format!("Current space '{}' not found", current_space))?;
-        
+
         Ok(space.edge_types.contains_key(edge_type_name))
     }
 
@@ -280,7 +316,10 @@ impl SpaceManager {
 
 fn get_timestamp() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 #[cfg(test)]
@@ -290,7 +329,7 @@ mod tests {
     #[test]
     fn test_create_space() {
         let manager = SpaceManager::new();
-        
+
         let space_def = SpaceDef {
             name: "test_space".to_string(),
             nodes: vec![],
@@ -303,7 +342,7 @@ mod tests {
                 embedding_model: None,
             },
         };
-        
+
         assert!(manager.create_space(space_def).is_ok());
         assert!(manager.get_space("test_space").is_some());
     }
@@ -311,12 +350,12 @@ mod tests {
     #[test]
     fn test_add_node_type() {
         let manager = SpaceManager::new();
-        
+
         let node_type = NodeTypeDef {
             name: "Document".to_string(),
             fields: vec![],
         };
-        
+
         assert!(manager.add_node_type("default", node_type).is_ok());
         assert!(manager.validate_node_type("Document").unwrap());
     }
@@ -324,7 +363,7 @@ mod tests {
     #[test]
     fn test_list_spaces() {
         let manager = SpaceManager::new();
-        
+
         let spaces = manager.list_spaces();
         assert!(spaces.contains(&"default".to_string()));
     }

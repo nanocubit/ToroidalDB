@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use tempfile::TempDir;
 use toroidal_db::hybrid_storage::{HybridPersistentStore, Node};
 use toroidal_db::math::MatryoshkaDim;
-use tempfile::TempDir;
 
 fn setup_test_store() -> (HybridPersistentStore, TempDir) {
     let temp_dir = TempDir::new().unwrap();
@@ -11,7 +11,7 @@ fn setup_test_store() -> (HybridPersistentStore, TempDir) {
 
 fn bench_matryoshka_search_d384(c: &mut Criterion) {
     let (store, _temp_dir) = setup_test_store();
-    
+
     // Insert test nodes
     for i in 0..1000 {
         let node = Node {
@@ -22,9 +22,9 @@ fn bench_matryoshka_search_d384(c: &mut Criterion) {
         };
         store.insert(node).unwrap();
     }
-    
+
     let query = vec![0.5f32; 384];
-    
+
     c.bench_function("matryoshka_search_d384_1000_nodes", |b| {
         b.iter(|| {
             store.matryoshka_search(
@@ -38,7 +38,7 @@ fn bench_matryoshka_search_d384(c: &mut Criterion) {
 
 fn bench_matryoshka_search_d768(c: &mut Criterion) {
     let (store, _temp_dir) = setup_test_store();
-    
+
     // Insert test nodes
     for i in 0..1000 {
         let node = Node {
@@ -49,9 +49,9 @@ fn bench_matryoshka_search_d768(c: &mut Criterion) {
         };
         store.insert(node).unwrap();
     }
-    
+
     let query = vec![0.5f32; 768];
-    
+
     c.bench_function("matryoshka_search_d768_1000_nodes", |b| {
         b.iter(|| {
             store.matryoshka_search(
@@ -65,7 +65,7 @@ fn bench_matryoshka_search_d768(c: &mut Criterion) {
 
 fn bench_node_insertion(c: &mut Criterion) {
     let (store, _temp_dir) = setup_test_store();
-    
+
     c.bench_function("node_insertion", |b| {
         b.iter(|| {
             let node = Node {

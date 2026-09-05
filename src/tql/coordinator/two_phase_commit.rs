@@ -38,7 +38,7 @@ enum CoordinatorState {
     Failed,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum ParticipantState {
     Initial,
     Prepared,
@@ -215,24 +215,24 @@ impl TwoPhaseCommit {
     fn simulate_prepare(&self, participant_id: &str) -> Result<bool, TwoPCError> {
         // Эмуляция сетевого вызова к участнику для фазы prepare
         // В реальной реализации здесь был бы HTTP/gRPC вызов к участнику
-        
+
         let participants = self.participants.read().unwrap();
         if let Some(participant) = participants.get(participant_id) {
             // Проверяем, доступен ли участник
             if participant.state == ParticipantState::Failed {
                 return Err(TwoPCError::ParticipantFailed);
             }
-            
+
             // Эмулируем успешную подготовку
             // В реальной реализации здесь был бы ответ от участника
             drop(participants);
-            
+
             let mut participants_write = self.participants.write().unwrap();
             if let Some(p) = participants_write.get_mut(participant_id) {
                 p.state = ParticipantState::Prepared;
                 p.last_response = Some(Instant::now());
             }
-            
+
             Ok(true)
         } else {
             Err(TwoPCError::ParticipantFailed)
@@ -242,24 +242,25 @@ impl TwoPhaseCommit {
     fn simulate_commit(&self, participant_id: &str) -> Result<bool, TwoPCError> {
         // Эмуляция сетевого вызова к участнику для фазы commit
         // В реальной реализации здесь был бы HTTP/gRPC вызов к участнику
-        
+
         let participants = self.participants.read().unwrap();
         if let Some(participant) = participants.get(participant_id) {
             // Проверяем, готов ли участник к коммиту
-            if participant.state != ParticipantState::Prepared 
-                && participant.state != ParticipantState::Initial {
+            if participant.state != ParticipantState::Prepared
+                && participant.state != ParticipantState::Initial
+            {
                 return Err(TwoPCError::InvalidState);
             }
-            
+
             drop(participants);
-            
+
             // Эмулируем успешный коммит
             let mut participants_write = self.participants.write().unwrap();
             if let Some(p) = participants_write.get_mut(participant_id) {
                 p.state = ParticipantState::Committed;
                 p.last_response = Some(Instant::now());
             }
-            
+
             Ok(true)
         } else {
             Err(TwoPCError::ParticipantFailed)
@@ -269,7 +270,7 @@ impl TwoPhaseCommit {
     fn simulate_abort(&self, participant_id: &str) -> Result<(), TwoPCError> {
         // Эмуляция сетевого вызова к участнику для фазы abort
         // В реальной реализации здесь был бы HTTP/gRPC вызов к участнику
-        
+
         let participants = self.participants.read().unwrap();
         if let Some(participant) = participants.get(participant_id) {
             // Проверяем состояние участника
@@ -277,16 +278,16 @@ impl TwoPhaseCommit {
                 // Уже закоммичено, нельзя отменить
                 return Err(TwoPCError::InvalidState);
             }
-            
+
             drop(participants);
-            
+
             // Эмулируем успешный аборт
             let mut participants_write = self.participants.write().unwrap();
             if let Some(p) = participants_write.get_mut(participant_id) {
                 p.state = ParticipantState::Aborted;
                 p.last_response = Some(Instant::now());
             }
-            
+
             Ok(())
         } else {
             Err(TwoPCError::ParticipantFailed)

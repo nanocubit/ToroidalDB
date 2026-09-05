@@ -1,12 +1,15 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tokio::runtime::Runtime;
-use std::sync::Arc;
 use serde_json::json;
+use std::sync::Arc;
+use tokio::runtime::Runtime;
 
 // Импорты вашего проекта
-use crate::storage::{Node, PersistentStore};
-use crate::tql::ast::{Query, MatchClause, NodePattern, AggregationField, AggregationFunction};
-use crate::tql::executor::QueryExecutor;
+use toroidal_db::hybrid_storage::{HybridPersistentStore, Node};
+use toroidal_db::tql::ast::{
+    AggregationField, AggregationFunction, MatchClause, NodePattern, Query,
+};
+use toroidal_db::tql::coordinator::{DistributedExecutor, QueryCoordinator};
+use toroidal_db::tql::executor::QueryExecutor;
 
 fn benchmark_local_search(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
@@ -16,9 +19,9 @@ fn benchmark_local_search(c: &mut Criterion) {
     let store = rt.block_on(async {
         // Очистка перед стартом на случай старого мусора
         let _ = std::fs::remove_dir_all(path);
-        
-        let store = Arc::new(PersistentStore::open(path).unwrap());
-        
+
+        let store = Arc::new(HybridPersistentStore::open(path).unwrap());
+
         // Наполняем данными
         for i in 1..=1000 {
             let node = Node {
@@ -53,6 +56,7 @@ fn benchmark_local_search(c: &mut Criterion) {
         transaction: None,
         limit: 10,
         distributed: false,
+        ..Default::default()
     };
 
     // 2. MEASUREMENT (Только исполнение)
@@ -60,7 +64,9 @@ fn benchmark_local_search(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 // Клонируем Arc, это дешево
-                let _results = QueryExecutor::execute_query(&store, black_box(query.clone())).await.unwrap();
+                let _results = QueryExecutor::execute_query(&store, black_box(query.clone()))
+                    .await
+                    .unwrap();
             })
         })
     });
@@ -77,7 +83,7 @@ fn benchmark_aggregation_operations(c: &mut Criterion) {
 
     let store = rt.block_on(async {
         let _ = std::fs::remove_dir_all(path);
-        let store = Arc::new(PersistentStore::open(path).unwrap());
+        let store = Arc::new(HybridPersistentStore::open(path).unwrap());
 
         for i in 1..=1000 {
             let node = Node {
@@ -114,12 +120,15 @@ fn benchmark_aggregation_operations(c: &mut Criterion) {
         transaction: None,
         limit: 1,
         distributed: false,
+        ..Default::default()
     };
 
     c.bench_function("aggregation_count_1000_nodes", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let _results = QueryExecutor::execute_query(&store, black_box(query.clone())).await.unwrap();
+                let _results = QueryExecutor::execute_query(&store, black_box(query.clone()))
+                    .await
+                    .unwrap();
             })
         })
     });
@@ -130,15 +139,19 @@ fn benchmark_aggregation_operations(c: &mut Criterion) {
 
 fn benchmark_distributed_search(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let paths = ["./benchmark_shard1", "./benchmark_shard2", "./benchmark_shard3"];
+    let paths = [
+        "./benchmark_shard1",
+        "./benchmark_shard2",
+        "./benchmark_shard3",
+    ];
 
     // SETUP: Создаем шарды и данные
     let (shards, executor) = rt.block_on(async {
         let mut shards_vec = Vec::new();
-        
+
         for path in &paths {
             let _ = std::fs::remove_dir_all(path);
-            let store = Arc::new(PersistentStore::open(path).unwrap());
+            let store = Arc::new(HybridPersistentStore::open(path).unwrap());
             shards_vec.push(store);
         }
 
@@ -160,8 +173,8 @@ fn benchmark_distributed_search(c: &mut Criterion) {
             }
         }
 
-        let coordinator = Arc::new(crate::tql::QueryCoordinator::new(3, shards_vec.clone()));
-        let executor = crate::tql::DistributedExecutor::new(coordinator);
+        let coordinator = Arc::new(QueryCoordinator::new(3, shards_vec.clone()));
+        let executor = DistributedExecutor::new(coordinator);
 
         (shards_vec, executor)
     });
@@ -186,6 +199,7 @@ fn benchmark_distributed_search(c: &mut Criterion) {
         transaction: None,
         limit: 15,
         distributed: true,
+        ..Default::default()
     };
 
     c.bench_function("distributed_search_3_shards", |b| {
@@ -193,7 +207,10 @@ fn benchmark_distributed_search(c: &mut Criterion) {
             rt.block_on(async {
                 // Executor обычно клонируется или Arc внутри, проверьте ваш API
                 // Здесь предполагаем, что executor можно переиспользовать
-                let _results = executor.execute_distributed(black_box(query.clone())).await.unwrap();
+                let _results = executor
+                    .execute_distributed(black_box(query.clone()))
+                    .await
+                    .unwrap();
             })
         })
     });
@@ -205,7 +222,7 @@ fn benchmark_distributed_search(c: &mut Criterion) {
     }
 }
 
-// Изменен на "cached_search", так как бенчмаркинг "холодного" старта 
+// Изменен на "cached_search", так как бенчмаркинг "холодного" старта
 // требует полного пересоздания хранилища на каждой итерации, что делает тест очень медленным.
 // Здесь мы измеряем скорость работы с кэшем (Hot Path).
 fn benchmark_cached_search(c: &mut Criterion) {
@@ -214,7 +231,7 @@ fn benchmark_cached_search(c: &mut Criterion) {
 
     let store = rt.block_on(async {
         let _ = std::fs::remove_dir_all(path);
-        let store = Arc::new(PersistentStore::open(path).unwrap());
+        let store = Arc::new(HybridPersistentStore::open(path).unwrap());
 
         for i in 1..=500 {
             let node = Node {
@@ -248,17 +265,22 @@ fn benchmark_cached_search(c: &mut Criterion) {
         transaction: None,
         limit: 5,
         distributed: false,
+        ..Default::default()
     };
 
     // Прогревочный запуск (warm-up), чтобы убедиться, что данные в кэше
     rt.block_on(async {
-        let _ = QueryExecutor::execute_query(&store, query.clone()).await.unwrap();
+        let _ = QueryExecutor::execute_query(&store, query.clone())
+            .await
+            .unwrap();
     });
 
     c.bench_function("cached_search_hot_path", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let _results = QueryExecutor::execute_query(&store, black_box(query.clone())).await.unwrap();
+                let _results = QueryExecutor::execute_query(&store, black_box(query.clone()))
+                    .await
+                    .unwrap();
             })
         })
     });

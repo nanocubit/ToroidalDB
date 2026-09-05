@@ -112,7 +112,12 @@ impl BackupManager {
         std::fs::write(&metadata_file, &metadata_json)
             .map_err(|e| format!("Failed to write metadata file: {}", e))?;
 
-        println!("✅ Backup created: {} ({} nodes, {} bytes)", backup_id, node_count, nodes_json.len());
+        println!(
+            "✅ Backup created: {} ({} nodes, {} bytes)",
+            backup_id,
+            node_count,
+            nodes_json.len()
+        );
 
         Ok(backup_id)
     }
@@ -137,7 +142,8 @@ impl BackupManager {
                     let metadata_content = std::fs::read_to_string(&metadata_file)
                         .map_err(|e| format!("Failed to read metadata: {}", e))?;
 
-                    if let Ok(metadata) = serde_json::from_str::<BackupMetadata>(&metadata_content) {
+                    if let Ok(metadata) = serde_json::from_str::<BackupMetadata>(&metadata_content)
+                    {
                         backups.push(BackupInfo {
                             backup_id: metadata.backup_id,
                             created_at: metadata.created_at,
@@ -184,17 +190,24 @@ impl BackupManager {
         let mut restored_count = 0;
         for node in nodes {
             if force_overwrite {
-                store.insert(node).map_err(|e| format!("Failed to insert node: {}", e))?;
+                store
+                    .insert(node)
+                    .map_err(|e| format!("Failed to insert node: {}", e))?;
             } else {
                 // Only insert if node doesn't exist
                 if let Ok(None) = store.get(node.id) {
-                    store.insert(node).map_err(|e| format!("Failed to insert node: {}", e))?;
+                    store
+                        .insert(node)
+                        .map_err(|e| format!("Failed to insert node: {}", e))?;
                 }
             }
             restored_count += 1;
         }
 
-        println!("✅ Restored {} nodes from backup: {}", restored_count, backup_id);
+        println!(
+            "✅ Restored {} nodes from backup: {}",
+            restored_count, backup_id
+        );
         Ok(())
     }
 
@@ -248,7 +261,8 @@ impl BackupManager {
             if path.is_dir() {
                 let metadata_file = path.join("metadata.json");
                 if let Ok(metadata_content) = std::fs::read_to_string(&metadata_file) {
-                    if let Ok(metadata) = serde_json::from_str::<BackupMetadata>(&metadata_content) {
+                    if let Ok(metadata) = serde_json::from_str::<BackupMetadata>(&metadata_content)
+                    {
                         if let Ok(duration) = metadata.created_at.duration_since(UNIX_EPOCH) {
                             if duration.as_secs() < cutoff_time {
                                 println!("🗑️ Removing old backup: {}", metadata.backup_id);

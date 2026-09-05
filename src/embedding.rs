@@ -1,7 +1,7 @@
 //! # Embedding Service для ToroidalDB
-//! 
+//!
 //! Поддержка модели multilingual-e5-small для мультиязычного семантического поиска
-//! 
+//!
 //! ## Характеристики модели:
 //! - Размерность: 384 (совместимо с MatryoshkaDim::D384)
 //! - Языки: 100+ (включая русский, китайский, арабский и др.)
@@ -17,10 +17,10 @@ use tokio::sync::RwLock;
 /// Типы поддерживаемых embedding моделей
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmbeddingModel {
-    MultilingualE5Small,    // 384 dimensions, 100+ languages
-    MultilingualE5Base,     // 768 dimensions
-    MultilingualE5Large,    // 1024 dimensions
-    SentenceTransformers,   // Generic sentence embeddings
+    MultilingualE5Small,  // 384 dimensions, 100+ languages
+    MultilingualE5Base,   // 768 dimensions
+    MultilingualE5Large,  // 1024 dimensions
+    SentenceTransformers, // Generic sentence embeddings
 }
 
 impl EmbeddingModel {
@@ -134,11 +134,9 @@ impl EmbeddingService {
     async fn compute_embedding(&self, text: &str) -> Result<Vec<f32>> {
         // В production здесь будет вызов ONNX Runtime или candle-transformers
         // Для сейчас реализуем упрощённую версию с токенизацией
-        
+
         match self.model {
-            EmbeddingModel::MultilingualE5Small => {
-                self.compute_e5_small_embedding(text).await
-            }
+            EmbeddingModel::MultilingualE5Small => self.compute_e5_small_embedding(text).await,
             _ => {
                 // Fallback для других моделей
                 self.compute_generic_embedding(text).await
@@ -150,43 +148,41 @@ impl EmbeddingService {
     async fn compute_e5_small_embedding(&self, text: &str) -> Result<Vec<f32>> {
         // Токенизация (упрощённая - в production использовать BPE токенизатор)
         let tokens = self.tokenize(text);
-        
+
         // Создаём входной тензор
-        let input_ids = tokens.iter()
-            .map(|&t| t as i64)
-            .collect::<Vec<_>>();
-        
+        let input_ids = tokens.iter().map(|&t| t as i64).collect::<Vec<_>>();
+
         // В production здесь будет вызов ONNX модели
         // Для демонстрации используем детерминированную генерацию на основе токенов
         let mut embedding = vec![0.0f32; self.model.dimension()];
-        
+
         // Генерируем эмбеддинг на основе токенов (имитация работы модели)
         for (i, &token) in tokens.iter().enumerate() {
             let token_contrib = (token as f32 / 1000.0).sin();
             let pos_contrib = (i as f32 / 100.0).cos();
-            
+
             for dim in 0..self.model.dimension() {
                 let pattern = ((token * 17 + dim as u32 * 31) % 1000) as f32 / 1000.0;
                 embedding[dim] += token_contrib * pos_contrib * pattern;
             }
         }
-        
+
         // Normalization (L2 norm для косинусного сходства)
         self.normalize_vector(&mut embedding);
-        
+
         Ok(embedding)
     }
 
     /// Generic fallback для эмбеддингов
     async fn compute_generic_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let mut embedding = vec![0.0f32; self.model.dimension()];
-        
+
         // Используем комбинацию hash и символьных признаков
         for (i, byte) in text.bytes().enumerate() {
             let pos = i % embedding.len();
             embedding[pos] += (byte as f32) / 256.0;
         }
-        
+
         // Добавляем bigram признаки
         let chars: Vec<char> = text.chars().collect();
         for i in 0..chars.len().saturating_sub(1) {
@@ -194,9 +190,9 @@ impl EmbeddingService {
             let pos = (bigram_hash as usize) % embedding.len();
             embedding[pos] += 0.1;
         }
-        
+
         self.normalize_vector(&mut embedding);
-        
+
         Ok(embedding)
     }
 
@@ -220,7 +216,7 @@ impl EmbeddingService {
     fn hash_bigram(&self, c1: char, c2: char) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         (c1 as u32).hash(&mut hasher);
         (c2 as u32).hash(&mut hasher);
@@ -240,12 +236,12 @@ impl EmbeddingService {
     /// Генерирует эмбеддинги для батча текстов
     pub async fn generate_batch(&self, texts: &[&str], is_query: bool) -> Result<Vec<Vec<f32>>> {
         let mut embeddings = Vec::with_capacity(texts.len());
-        
+
         for text in texts {
             let embedding = self.generate_embedding(text, is_query).await?;
             embeddings.push(embedding);
         }
-        
+
         Ok(embeddings)
     }
 
@@ -254,7 +250,7 @@ impl EmbeddingService {
         let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
         let norm_a: f32 = a.iter().map(|x| x * x).sum();
         let norm_b: f32 = b.iter().map(|x| x * x).sum();
-        
+
         let denominator = norm_a.sqrt() * norm_b.sqrt();
         if denominator < 1e-10 {
             0.0
@@ -281,24 +277,17 @@ impl EmbeddingService {
             EmbeddingModel::MultilingualE5Small => {
                 "multilingual-e5-small (384 dims, 100+ languages)"
             }
-            EmbeddingModel::MultilingualE5Base => {
-                "multilingual-e5-base (768 dims, 100+ languages)"
-            }
+            EmbeddingModel::MultilingualE5Base => "multilingual-e5-base (768 dims, 100+ languages)",
             EmbeddingModel::MultilingualE5Large => {
                 "multilingual-e5-large (1024 dims, 100+ languages)"
             }
-            EmbeddingModel::SentenceTransformers => {
-                "sentence-transformers (384 dims)"
-            }
+            EmbeddingModel::SentenceTransformers => "sentence-transformers (384 dims)",
         }
     }
 }
 
 /// Конвертирует эмбеддинг в другую размерность Matryoshka
-pub fn convert_to_matryoshka(
-    embedding: &[f32],
-    target_dim: usize,
-) -> Vec<f32> {
+pub fn convert_to_matryoshka(embedding: &[f32], target_dim: usize) -> Vec<f32> {
     if embedding.len() >= target_dim {
         // Обрезаем до нужной размерности
         embedding[..target_dim].to_vec()
@@ -317,23 +306,23 @@ mod tests {
     #[tokio::test]
     async fn test_multilingual_embedding() {
         let service = EmbeddingService::new(EmbeddingModel::MultilingualE5Small);
-        
+
         // Тестируем на разных языках
         let texts = vec![
-            "Hello, how are you?",           // English
-            "Привет, как дела?",             // Russian
-            "你好，你好吗？",                  // Chinese
-            "مرحبا، كيف حالك؟",              // Arabic
-            "こんにちは、お元気ですか？",       // Japanese
+            "Hello, how are you?",        // English
+            "Привет, как дела?",          // Russian
+            "你好，你好吗？",             // Chinese
+            "مرحبا، كيف حالك؟",           // Arabic
+            "こんにちは、お元気ですか？", // Japanese
         ];
-        
+
         let mut embeddings = Vec::new();
         for text in &texts {
             let embedding = service.generate_embedding(text, false).await.unwrap();
             assert_eq!(embedding.len(), 384);
             embeddings.push(embedding);
         }
-        
+
         // Проверяем, что эмбеддинги нормализованы
         for embedding in &embeddings {
             let norm: f32 = embedding.iter().map(|x| x * x).sum();
@@ -344,25 +333,46 @@ mod tests {
     #[tokio::test]
     async fn test_cross_lingual_similarity() {
         let service = EmbeddingService::new(EmbeddingModel::MultilingualE5Small);
-        
+
         // Запрос на английском
-        let query_embedding = service.generate_embedding("machine learning", true).await.unwrap();
-        
+        let query_embedding = service
+            .generate_embedding("machine learning", true)
+            .await
+            .unwrap();
+
         // Документы на разных языках
-        let ru_doc = service.generate_embedding("машинное обучение и нейронные сети", false).await.unwrap();
-        let en_doc = service.generate_embedding("deep learning and neural networks", false).await.unwrap();
-        let zh_doc = service.generate_embedding("机器学习和神经网络", false).await.unwrap();
-        
+        let ru_doc = service
+            .generate_embedding("машинное обучение и нейронные сети", false)
+            .await
+            .unwrap();
+        let en_doc = service
+            .generate_embedding("deep learning and neural networks", false)
+            .await
+            .unwrap();
+        let zh_doc = service
+            .generate_embedding("机器学习和神经网络", false)
+            .await
+            .unwrap();
+
         // Вычисляем сходство
         let sim_ru = EmbeddingService::cosine_similarity(&query_embedding, &ru_doc);
         let sim_en = EmbeddingService::cosine_similarity(&query_embedding, &en_doc);
         let sim_zh = EmbeddingService::cosine_similarity(&query_embedding, &zh_doc);
-        
+
         // Все должны иметь положительное сходство (тематически связаны)
-        assert!(sim_ru > 0.0, "Russian document should have positive similarity");
-        assert!(sim_en > 0.0, "English document should have positive similarity");
-        assert!(sim_zh > 0.0, "Chinese document should have positive similarity");
-        
+        assert!(
+            sim_ru > 0.0,
+            "Russian document should have positive similarity"
+        );
+        assert!(
+            sim_en > 0.0,
+            "English document should have positive similarity"
+        );
+        assert!(
+            sim_zh > 0.0,
+            "Chinese document should have positive similarity"
+        );
+
         println!("Cross-lingual similarities:");
         println!("  EN-RU: {:.4}", sim_ru);
         println!("  EN-EN: {:.4}", sim_en);
@@ -372,25 +382,28 @@ mod tests {
     #[tokio::test]
     async fn test_embedding_cache() {
         let service = EmbeddingService::new(EmbeddingModel::MultilingualE5Small);
-        
+
         let text = "This is a test sentence for caching";
-        
+
         // Первая генерация
         let start1 = std::time::Instant::now();
         let embedding1 = service.generate_embedding(text, false).await.unwrap();
         let time1 = start1.elapsed();
-        
+
         // Вторая генерация (из кэша)
         let start2 = std::time::Instant::now();
         let embedding2 = service.generate_embedding(text, false).await.unwrap();
         let time2 = start2.elapsed();
-        
+
         // Эмбеддинги должны быть идентичны
         assert_eq!(embedding1, embedding2);
-        
+
         // Кэш должен быть быстрее
         assert!(time2 < time1, "Cached embedding should be faster");
-        
-        println!("Cache speedup: {:.2}x", time1.as_secs_f64() / time2.as_secs_f64());
+
+        println!(
+            "Cache speedup: {:.2}x",
+            time1.as_secs_f64() / time2.as_secs_f64()
+        );
     }
 }

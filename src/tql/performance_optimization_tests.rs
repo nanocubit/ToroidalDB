@@ -43,6 +43,7 @@ mod performance_optimization_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         // Первый запуск (без кэша)
@@ -87,12 +88,12 @@ mod performance_optimization_tests {
 
     #[tokio::test]
     async fn test_parallel_search_performance() {
-        let store = Arc::new(PersistentStore::open("./parallel_perf_test_data").unwrap());
+        let store = Arc::new(HybridPersistentStore::open("./parallel_perf_test_data").unwrap());
 
         // Создаем большое количество узлов для тестирования параллелизма
         let num_nodes = 5000;
         for i in 1..=num_nodes {
-            let node = crate::storage::Node {
+            let node = crate::hybrid_storage::Node {
                 id: i as u64,
                 vector: vec![
                     (i as f32 * 0.0002) % 1.0,
@@ -114,12 +115,7 @@ mod performance_optimization_tests {
         let query_vector = vec![0.5, 0.5, 0.5, 0.5];
         let start_time = Instant::now();
         let results = store
-            .matryoshka_search(
-                &query_vector,
-                crate::math::MatryoshkaDim::D384,
-                0.3,
-                Some(20),
-            )
+            .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.3)
             .unwrap();
         let duration = start_time.elapsed();
 
@@ -137,12 +133,12 @@ mod performance_optimization_tests {
 
     #[tokio::test]
     async fn test_early_termination_optimization() {
-        let store = Arc::new(PersistentStore::open("./early_term_test_data").unwrap());
+        let store = Arc::new(HybridPersistentStore::open("./early_term_test_data").unwrap());
 
         // Создаем узлы с разными расстояниями до эталонного вектора
         for i in 1..=2000 {
             let distance_factor = (i as f32 / 2000.0) * 0.5; // От 0 до 0.5
-            let node = crate::storage::Node {
+            let node = crate::hybrid_storage::Node {
                 id: i as u64,
                 vector: vec![0.5 + distance_factor, 0.5 - distance_factor],
                 properties: json!({"id": i, "distance_factor": distance_factor}),
@@ -158,12 +154,7 @@ mod performance_optimization_tests {
         for limit in limits {
             let start_time = Instant::now();
             let results = store
-                .matryoshka_search(
-                    &query_vector,
-                    crate::math::MatryoshkaDim::D384,
-                    0.4,
-                    Some(limit),
-                )
+                .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.4)
                 .unwrap();
             let duration = start_time.elapsed();
 
@@ -182,11 +173,11 @@ mod performance_optimization_tests {
 
     #[tokio::test]
     async fn test_cache_ttl_expiration() {
-        let store = Arc::new(PersistentStore::open("./cache_ttl_test_data").unwrap());
+        let store = Arc::new(HybridPersistentStore::open("./cache_ttl_test_data").unwrap());
 
         // Создаем тестовые узлы
         for i in 1..=100 {
-            let node = crate::storage::Node {
+            let node = crate::hybrid_storage::Node {
                 id: i as u64,
                 vector: vec![i as f32 * 0.01, 0.5],
                 properties: json!({"id": i, "name": format!("node_{}", i)}),
@@ -198,26 +189,16 @@ mod performance_optimization_tests {
         // Выполняем запрос и кэшируем результат
         let query_vector = vec![0.5, 0.5];
         let results_before = store
-            .matryoshka_search(
-                &query_vector,
-                crate::math::MatryoshkaDim::D384,
-                0.3,
-                Some(10),
-            )
+            .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.3)
             .unwrap();
         assert!(!results_before.is_empty());
 
-        // Очищаем устаревшие записи из кэша (с TTL 0 для тестирования)
-        store.query_cache.cleanup_expired();
+        // Очищаем кэш (полная инвалидация вместо очистки только устаревших записей)
+        store.query_cache.clear();
 
         // Выполняем тот же запрос снова
         let results_after = store
-            .matryoshka_search(
-                &query_vector,
-                crate::math::MatryoshkaDim::D384,
-                0.3,
-                Some(10),
-            )
+            .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.3)
             .unwrap();
         assert!(!results_after.is_empty());
 
@@ -233,13 +214,13 @@ mod performance_optimization_tests {
 
     #[tokio::test]
     async fn test_large_scale_performance() {
-        let store = Arc::new(PersistentStore::open("./large_scale_perf_test_data").unwrap());
+        let store = Arc::new(HybridPersistentStore::open("./large_scale_perf_test_data").unwrap());
 
         // Создаем 10,000 узлов для тестирования масштабируемости
         let num_nodes = 10000;
         for i in 1..=num_nodes {
             let angle = (i as f32) * 0.001; // Угол для распределения векторов
-            let node = crate::storage::Node {
+            let node = crate::hybrid_storage::Node {
                 id: i as u64,
                 vector: vec![
                     (angle.sin() + 1.0) / 2.0, // Значения от 0 до 1
@@ -267,24 +248,14 @@ mod performance_optimization_tests {
         // Первый запрос (без кэша)
         let start_time = Instant::now();
         let results1 = store
-            .matryoshka_search(
-                &query_vector,
-                crate::math::MatryoshkaDim::D384,
-                0.2,
-                Some(50),
-            )
+            .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.2)
             .unwrap();
         let first_duration = start_time.elapsed();
 
         // Второй запрос (с кэшем)
         let start_time = Instant::now();
         let results2 = store
-            .matryoshka_search(
-                &query_vector,
-                crate::math::MatryoshkaDim::D384,
-                0.2,
-                Some(50),
-            )
+            .matryoshka_search(&query_vector, crate::math::MatryoshkaDim::D384, 0.2)
             .unwrap();
         let second_duration = start_time.elapsed();
 
@@ -309,11 +280,11 @@ mod performance_optimization_tests {
 
     #[tokio::test]
     async fn test_hybrid_query_caching() {
-        let store = Arc::new(PersistentStore::open("./hybrid_cache_test_data").unwrap());
+        let store = Arc::new(HybridPersistentStore::open("./hybrid_cache_test_data").unwrap());
 
         // Создаем тестовые узлы для гибридного поиска
         for i in 1..=500 {
-            let node = crate::storage::Node {
+            let node = crate::hybrid_storage::Node {
                 id: i as u64,
                 vector: vec![(i as f32 * 0.002) % 1.0, 0.5],
                 properties: json!({
@@ -347,6 +318,7 @@ mod performance_optimization_tests {
             transaction: None,
             limit: 15,
             distributed: false,
+            ..Default::default()
         };
 
         // Первый запуск гибридного запроса

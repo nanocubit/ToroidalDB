@@ -1,5 +1,18 @@
+use crate::index::{Condition, Filter};
 use crate::tql::ast::{BackendHint, Query, QueryHints, WhereCondition};
+use crate::tql::cost_optimizer::CostBasedOptimizer;
 use serde::{Deserialize, Serialize};
+
+/// Search strategy selected by the query planner
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SearchStrategy {
+    /// Vector search first, then filter results
+    VectorFirst { ef: usize, oversampling: f32 },
+    /// Filter first (if highly selective), then vector search on subset
+    FilterFirst { estimated_selectivity: f32 },
+    /// Filter-aware HNSW (payload_m) handles both
+    FilterAwareHnsw { payload_m: usize },
+}
 
 /// Logical execution plan for TQL queries
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -7,6 +20,8 @@ pub struct LogicalPlan {
     pub steps: Vec<PlanStep>,
     pub estimated_cost: f64,
     pub estimated_rows: u64,
+    pub backend: ExecutionBackend,
+    pub search_strategy: SearchStrategy,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -83,16 +98,67 @@ pub struct AggregationStep {
 pub struct PlanBuilder;
 
 impl PlanBuilder {
+    /// Determine search strategy: filter-first vs vector-first vs filter-aware HNSW
+    fn select_strategy(query: &Query) -> SearchStrategy {
+        // If payload_m is configured, use filter-aware HNSW
+        let has_property_filter = match &query.where_clause {
+            Some(WhereCondition::PropertyFilter { .. }) => true,
+            _ => false,
+        };
+        let has_vector_search = match &query.where_clause {
+            Some(WhereCondition::ToroidalDistance { .. }) => true,
+            _ => false,
+        };
+
+        if has_property_filter && !has_vector_search {
+            // Only property filter, no vector search — filter-first
+            return SearchStrategy::FilterFirst {
+                estimated_selectivity: 0.1,
+            };
+        }
+
+        if has_property_filter && has_vector_search {
+            // Both filter and vector — estimate selectivity
+            // For now, use a heuristic: if filter is likely selective, use filter-first
+            // In production, use histogram statistics from CostBasedOptimizer
+            return SearchStrategy::FilterAwareHnsw { payload_m: 8 };
+        }
+
+        // Default: vector-first
+        SearchStrategy::VectorFirst {
+            ef: 100,
+            oversampling: 2.0,
+        }
+    }
+
     /// Build a logical plan from a TQL query
     pub fn build(query: &Query) -> LogicalPlan {
         let mut steps = Vec::new();
-        let mut estimated_cost = 0.0;
-        let mut estimated_rows = 1000; // Default estimate
+        let optimizer = CostBasedOptimizer::new();
+
+        // Use CostBasedOptimizer for accurate cost estimation
+        let cost = optimizer.estimate_cost(query);
+        let estimated_rows = optimizer.estimate_result_cardinality(query);
+
+        // Determine backend from hints or auto-select
+        let backend = Self::select_backend(query);
 
         // Step 1: Route to shards
+        let routing = if let Some(ref hints) = query.hints {
+            if let Some(n) = hints.scatter_shards {
+                RoutingStrategy::HashRing { radius: n }
+            } else if hints.prefer_local_shard {
+                RoutingStrategy::SingleShard(0)
+            } else {
+                RoutingStrategy::HashRing { radius: 5 }
+            }
+        } else {
+            RoutingStrategy::HashRing { radius: 5 }
+        };
+
         steps.push(PlanStep::RouteShards {
-            shard_ids: vec![], // Will be filled by coordinator
-            strategy: RoutingStrategy::HashRing { radius: 5 },
+            shard_ids: vec![],
+            strategy: routing,
         });
 
         // Step 2: Vector search if TOROIDALDISTANCE present
@@ -103,10 +169,8 @@ impl PlanBuilder {
                         field: field.clone(),
                         threshold: *threshold,
                         limit: query.limit,
-                        backend: ExecutionBackend::Auto,
+                        backend: backend.clone(),
                     });
-                    estimated_cost += 100.0; // Vector search cost
-                    estimated_rows = (estimated_rows as f32 * 0.1) as u64; // Selectivity
                 }
                 _ => {}
             }
@@ -131,7 +195,6 @@ impl PlanBuilder {
                 min_hops,
                 direction: TraversalDirection::Both,
             });
-            estimated_cost += (max_hops * 50) as f64; // Graph traversal cost
         }
 
         // Step 4: Merge top-K from shards
@@ -174,9 +237,30 @@ impl PlanBuilder {
 
         LogicalPlan {
             steps,
-            estimated_cost,
-            estimated_rows,
+            estimated_cost: cost.total_cost,
+            estimated_rows: estimated_rows as u64,
+            backend,
+            search_strategy: Self::select_strategy(query),
         }
+    }
+
+    /// Select execution backend based on hints or auto-detection
+    fn select_backend(query: &Query) -> ExecutionBackend {
+        if let Some(ref hints) = query.hints {
+            if let Some(ref backend_hint) = hints.backend {
+                return match backend_hint {
+                    BackendHint::Gpu => ExecutionBackend::Gpu,
+                    BackendHint::Avx512 => ExecutionBackend::Avx512,
+                    BackendHint::Avx2 => ExecutionBackend::Avx2,
+                    BackendHint::Scalar => ExecutionBackend::Scalar,
+                    BackendHint::Auto => ExecutionBackend::Auto,
+                };
+            }
+            if hints.force_gpu {
+                return ExecutionBackend::Gpu;
+            }
+        }
+        ExecutionBackend::Auto
     }
 }
 
@@ -196,7 +280,9 @@ impl ExplainResult {
             "Estimated cost: {:.2}\n",
             self.plan.estimated_cost
         ));
-        output.push_str(&format!("Estimated rows: {}\n\n", self.plan.estimated_rows));
+        output.push_str(&format!("Estimated rows: {}\n", self.plan.estimated_rows));
+        output.push_str(&format!("Backend: {:?}\n", self.plan.backend));
+        output.push_str(&format!("Strategy: {:?}\n\n", self.plan.search_strategy));
 
         for (i, step) in self.plan.steps.iter().enumerate() {
             output.push_str(&format!("{}. ", i + 1));
@@ -282,6 +368,7 @@ mod tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         let plan = PlanBuilder::build(&query);
@@ -315,6 +402,7 @@ mod tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         let plan = PlanBuilder::build(&query);

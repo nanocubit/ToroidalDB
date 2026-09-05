@@ -1,14 +1,19 @@
+use crate::hybrid_storage::HybridPersistentStore;
 use crate::tql::ast::{CommonTableExpression, Query, WithClause};
+use crate::tql::executor::QueryExecutor;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct CteExecutor {
     cte_results: HashMap<String, Vec<serde_json::Value>>,
+    store: Arc<HybridPersistentStore>,
 }
 
 impl CteExecutor {
-    pub fn new() -> Self {
+    pub fn new(store: Arc<HybridPersistentStore>) -> Self {
         CteExecutor {
             cte_results: HashMap::new(),
+            store,
         }
     }
 
@@ -70,10 +75,11 @@ impl CteExecutor {
     fn apply_cte_context(&self, _query: &mut Query) {}
 
     fn execute_query(&self, query: &Query) -> Result<Vec<serde_json::Value>, String> {
-        // В реальной реализации здесь должно быть выполнение запроса к хранилищу
-        // Для現在 мы возвращаем пустой результат, так как CTE требует интеграции с QueryExecutor
-        // Это заглушка будет заменена при полной интеграции
-        Ok(Vec::new())
+        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("Runtime error: {}", e))?;
+        let results = rt
+            .block_on(QueryExecutor::execute_query(&self.store, query.clone()))
+            .map_err(|e| format!("CTE query execution failed: {}", e))?;
+        Ok(results.into_iter().map(|r| r.properties.clone()).collect())
     }
 
     pub fn get_cte_result(&self, name: &str) -> Option<&Vec<serde_json::Value>> {
@@ -91,20 +97,22 @@ impl CteExecutor {
 
 impl Default for CteExecutor {
     fn default() -> Self {
-        Self::new()
+        panic!("CteExecutor::default() not supported")
     }
 }
 
 pub struct RecursiveQueryExecutor {
     max_depth: usize,
     current_depth: usize,
+    store: Arc<HybridPersistentStore>,
 }
 
 impl RecursiveQueryExecutor {
-    pub fn new(max_depth: usize) -> Self {
+    pub fn new(max_depth: usize, store: Arc<HybridPersistentStore>) -> Self {
         RecursiveQueryExecutor {
             max_depth,
             current_depth: 0,
+            store,
         }
     }
 
@@ -140,36 +148,17 @@ impl RecursiveQueryExecutor {
     }
 
     fn execute_query(&self, query: &Query) -> Result<Vec<serde_json::Value>, String> {
-        let mut results = Vec::new();
-
-        if query.return_fields.is_empty() {
-            return Ok(results);
-        }
-
-        let return_fields = &query.return_fields;
-
-        for i in 0..10 {
-            let row: serde_json::Map<String, serde_json::Value> = return_fields
-                .iter()
-                .enumerate()
-                .map(|(j, field): (usize, &String)| {
-                    (
-                        field.clone(),
-                        serde_json::json!(format!("value_{}_{}", i, j)),
-                    )
-                })
-                .collect();
-
-            results.push(serde_json::Value::Object(row));
-        }
-
-        Ok(results)
+        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("Runtime error: {}", e))?;
+        let results = rt
+            .block_on(QueryExecutor::execute_query(&self.store, query.clone()))
+            .map_err(|e| format!("CTE query execution failed: {}", e))?;
+        Ok(results.into_iter().map(|r| r.properties.clone()).collect())
     }
 }
 
 impl Default for RecursiveQueryExecutor {
     fn default() -> Self {
-        Self::new(10)
+        panic!("RecursiveQueryExecutor::default() not supported")
     }
 }
 
@@ -179,7 +168,9 @@ mod tests {
 
     #[test]
     fn test_cte_executor() {
-        let mut executor = CteExecutor::new();
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = Arc::new(HybridPersistentStore::open(dir.path().join("test")).unwrap());
+        let mut executor = CteExecutor::new(store);
 
         let cte = CommonTableExpression {
             name: "test_cte".to_string(),
@@ -196,7 +187,9 @@ mod tests {
 
     #[test]
     fn test_recursive_executor() {
-        let mut executor = RecursiveQueryExecutor::new(5);
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = Arc::new(HybridPersistentStore::open(dir.path().join("test")).unwrap());
+        let mut executor = RecursiveQueryExecutor::new(5, store);
 
         let base_query = Query::default();
         let recursive_query = Query::default();

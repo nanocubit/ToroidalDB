@@ -1,5 +1,5 @@
 //! # Subscription Manager для TQL v3.0 - Production Ready
-//! 
+//!
 //! Управление подписками на изменения данных с поддержкой WebSocket, Webhook, gRPC
 
 use crate::hybrid_storage::{HybridPersistentStore, Node};
@@ -7,9 +7,10 @@ use crate::tql::ast::*;
 use crate::tql::executor::QueryExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, RwLock, Mutex};
+use tokio::sync::{broadcast, Mutex, RwLock};
 use uuid::Uuid;
 
 /// Менеджер подписок
@@ -22,7 +23,7 @@ pub struct SubscriptionManager {
 }
 
 /// Активная подписка
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveSubscription {
     pub id: String,
     pub query: Query,
@@ -36,7 +37,7 @@ pub struct ActiveSubscription {
 }
 
 /// Статус подписки
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SubscriptionStatus {
     Active,
     Paused,
@@ -50,6 +51,127 @@ pub struct WebSocketClient {
     pub subscription_id: String,
     pub endpoint: String,
     pub connected: bool,
+}
+
+/// WebSocket сервер для подписок
+pub struct SubscriptionWebSocketServer {
+    pub bind_addr: SocketAddr,
+    pub manager: Arc<SubscriptionManager>,
+}
+
+impl SubscriptionWebSocketServer {
+    pub fn new(bind_addr: SocketAddr, manager: Arc<SubscriptionManager>) -> Self {
+        Self { bind_addr, manager }
+    }
+
+    pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind(&self.bind_addr).await?;
+        println!(
+            "📡 WebSocket subscription server listening on {}",
+            self.bind_addr
+        );
+
+        loop {
+            match listener.accept().await {
+                Ok((tcp_stream, peer_addr)) => {
+                    println!("WebSocket connection from {}", peer_addr);
+                    let manager = self.manager.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_ws_connection(tcp_stream, manager).await {
+                            eprintln!("WebSocket error from {}: {}", peer_addr, e);
+                        }
+                    });
+                }
+                Err(e) => {
+                    eprintln!("WebSocket accept error: {}", e);
+                }
+            }
+        }
+    }
+}
+
+async fn handle_ws_connection(
+    tcp_stream: tokio::net::TcpStream,
+    manager: Arc<SubscriptionManager>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::accept_async;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let ws_stream = accept_async(tcp_stream).await?;
+    let (mut write, mut read) = ws_stream.split();
+
+    // Subscribe to the global event broadcast channel
+    let mut rx = manager.event_tx.subscribe();
+
+    // Send connection confirmation
+    let hello = serde_json::json!({
+        "type": "connected",
+        "version": "1.0",
+        "protocol": "subscription"
+    });
+    write.send(Message::Text(hello.to_string())).await?;
+
+    let subscription_id = Arc::new(Mutex::new(None::<String>));
+
+    loop {
+        tokio::select! {
+            // Incoming WebSocket messages from client
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        // Parse subscription request
+                        if let Ok(req) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(sub_type) = req["type"].as_str() {
+                                match sub_type {
+                                    "subscribe" => {
+                                        if let Some(query_str) = req["query"].as_str() {
+                                            *subscription_id.lock().await = Some(manager.register_subscription(query_str).await);
+                                            let ack = serde_json::json!({
+                                                "type": "subscribed",
+                                                "subscription_id": *subscription_id.lock().await
+                                            });
+                                            write.send(Message::Text(ack.to_string())).await?;
+                                        }
+                                    }
+                                    "unsubscribe" => {
+                                        if let Some(sid) = subscription_id.lock().await.take() {
+                                            manager.unsubscribe(&sid).await;
+                                        }
+                                        let ack = serde_json::json!({"type": "unsubscribed"});
+                                        write.send(Message::Text(ack.to_string())).await?;
+                                    }
+                                    "ping" => {
+                                        let pong = serde_json::json!({"type": "pong"});
+                                        write.send(Message::Text(pong.to_string())).await?;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => {}
+                }
+            }
+            // Events from broadcast channel
+            event = rx.recv() => {
+                match event {
+                    Ok(event) => {
+                        let payload = serde_json::to_string(&event).unwrap_or_default();
+                        if write.send(Message::Text(payload)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Статистика подписок
@@ -125,7 +247,7 @@ pub struct QueryMatch {
 impl SubscriptionManager {
     pub fn new(store: Arc<HybridPersistentStore>) -> Self {
         let (event_tx, _) = broadcast::channel(10000);
-        
+
         Self {
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
@@ -135,10 +257,28 @@ impl SubscriptionManager {
         }
     }
 
+    /// Регистрирует новую подписку из строки TQL
+    pub async fn register_subscription(&self, query_str: &str) -> String {
+        if let Ok((_, query)) = crate::tql::parser::parse_query(query_str) {
+            let subscription = Subscription {
+                id: Some(Uuid::new_v4().to_string()),
+                query: Box::new(query),
+                emit: EmitClause::Changes,
+                where_condition: None,
+            };
+            if let Ok(id) = self.register(subscription).await {
+                return id;
+            }
+        }
+        String::new()
+    }
+
     /// Регистрирует новую подписку
     pub async fn register(&self, subscription: Subscription) -> Result<String, String> {
-        let id = subscription.id.unwrap_or_else(|| Uuid::new_v4().to_string());
-        
+        let id = subscription
+            .id
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
         let active_sub = ActiveSubscription {
             id: id.clone(),
             query: (*subscription.query).clone(),
@@ -150,50 +290,59 @@ impl SubscriptionManager {
             error_count: 0,
             status: SubscriptionStatus::Active,
         };
-        
+
         // Настраиваем WebSocket если нужно
-        if let EmitClause::WebSocket { endpoint } = &subscription.emit {
+        if let EmitClause::WebSocket { endpoint } = &active_sub.emit {
             let mut clients = self.websocket_clients.lock().await;
-            clients.insert(id.clone(), WebSocketClient {
-                subscription_id: id.clone(),
-                endpoint: endpoint.clone(),
-                connected: true,
-            });
+            clients.insert(
+                id.clone(),
+                WebSocketClient {
+                    subscription_id: id.clone(),
+                    endpoint: endpoint.clone(),
+                    connected: true,
+                },
+            );
         }
-        
+
         let mut subs = self.subscriptions.write().await;
         subs.insert(id.clone(), active_sub);
-        
+        // Guard must be released before update_stats: it takes read() on the
+        // same RwLock, and tokio's RwLock is not reentrant.
+        drop(subs);
+
         // Обновляем статистику
         self.update_stats().await;
-        
+
         Ok(id)
     }
 
     /// Отменяет подписку
     pub async fn unsubscribe(&self, subscription_id: &str) -> Result<(), String> {
         let mut subs = self.subscriptions.write().await;
-        
+
         if subs.remove(subscription_id).is_none() {
             return Err(format!("Subscription '{}' not found", subscription_id));
         }
-        
+
         // Удаляем WebSocket клиент если есть
         let mut clients = self.websocket_clients.lock().await;
         clients.remove(subscription_id);
-        
+        drop(clients);
+        drop(subs);
+
         self.update_stats().await;
-        
+
         Ok(())
     }
 
     /// Приостанавливает подписку
     pub async fn pause(&self, subscription_id: &str) -> Result<(), String> {
         let mut subs = self.subscriptions.write().await;
-        
-        let sub = subs.get_mut(subscription_id)
+
+        let sub = subs
+            .get_mut(subscription_id)
             .ok_or_else(|| format!("Subscription '{}' not found", subscription_id))?;
-        
+
         sub.status = SubscriptionStatus::Paused;
         Ok(())
     }
@@ -201,10 +350,11 @@ impl SubscriptionManager {
     /// Возобновляет подписку
     pub async fn resume(&self, subscription_id: &str) -> Result<(), String> {
         let mut subs = self.subscriptions.write().await;
-        
-        let sub = subs.get_mut(subscription_id)
+
+        let sub = subs
+            .get_mut(subscription_id)
             .ok_or_else(|| format!("Subscription '{}' not found", subscription_id))?;
-        
+
         sub.status = SubscriptionStatus::Active;
         Ok(())
     }
@@ -224,40 +374,49 @@ impl SubscriptionManager {
     /// Отправляет событие изменения
     pub async fn emit_event(&self, event: ChangeEvent) -> Result<(), String> {
         let start_time = std::time::Instant::now();
-        
+
         // Отправляем в broadcast channel
-        self.event_tx.send(event.clone()).map_err(|e| e.to_string())?;
-        
+        self.event_tx
+            .send(event.clone())
+            .map_err(|e| e.to_string())?;
+
         // Проверяем подписки и выполняем запросы
         self.process_event(event, start_time).await?;
-        
+
         Ok(())
     }
 
     /// Обрабатывает событие изменения
-    async fn process_event(&self, event: ChangeEvent, start_time: std::time::Instant) -> Result<(), String> {
+    async fn process_event(
+        &self,
+        event: ChangeEvent,
+        start_time: std::time::Instant,
+    ) -> Result<(), String> {
         let subs = self.subscriptions.read().await.clone();
         let mut processed = 0;
         let mut errors = 0;
-        
+
         for (id, subscription) in subs.iter() {
             // Пропускаем неактивные подписки
             if subscription.status != SubscriptionStatus::Active {
                 continue;
             }
-            
+
             if !self.is_subscription_relevant(subscription, &event) {
                 continue;
             }
-            
+
             // Выполняем запрос подписки
             match self.execute_subscription_query(subscription).await {
                 Ok(results) => {
                     if !results.is_empty() {
                         let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
-                        
+
                         // Отправляем результаты
-                        if let Err(e) = self.send_results(id, event.clone(), results, latency_ms).await {
+                        if let Err(e) = self
+                            .send_results(id, event.clone(), results, latency_ms)
+                            .await
+                        {
                             eprintln!("Error sending results for subscription {}: {}", id, e);
                             self.increment_error_count(id).await;
                             errors += 1;
@@ -274,22 +433,26 @@ impl SubscriptionManager {
                 }
             }
         }
-        
+
         // Обновляем общую статистику
         self.update_event_stats(processed, errors).await;
-        
+
         Ok(())
     }
 
     /// Проверяет релевантность подписки для события
-    fn is_subscription_relevant(&self, subscription: &ActiveSubscription, event: &ChangeEvent) -> bool {
+    fn is_subscription_relevant(
+        &self,
+        subscription: &ActiveSubscription,
+        event: &ChangeEvent,
+    ) -> bool {
         // Проверяем WHERE condition если есть
         if let Some(where_clause) = &subscription.where_condition {
             if !self.evaluate_where_clause(where_clause, event) {
                 return false;
             }
         }
-        
+
         // Проверяем тип события против MATCH clause
         match event {
             ChangeEvent::NodeInserted { node_type, .. } => {
@@ -306,32 +469,42 @@ impl SubscriptionManager {
             }
             _ => {}
         }
-        
+
         true
     }
 
     /// Оценивает WHERE clause для события
     fn evaluate_where_clause(&self, where_clause: &WhereCondition, event: &ChangeEvent) -> bool {
         match where_clause {
-            WhereCondition::PropertyFilter { property, operator, value } => {
-                match event {
-                    ChangeEvent::NodeInserted { properties, .. } |
-                    ChangeEvent::NodeUpdated { new_properties: properties, .. } => {
-                        if let Some(prop_value) = properties.get(property) {
-                            return self.compare_property(prop_value, operator, value);
-                        }
+            WhereCondition::PropertyFilter {
+                property,
+                operator,
+                value,
+            } => match event {
+                ChangeEvent::NodeInserted { properties, .. }
+                | ChangeEvent::NodeUpdated {
+                    new_properties: properties,
+                    ..
+                } => {
+                    if let Some(prop_value) = properties.get(property) {
+                        return self.compare_property(prop_value, operator, value);
                     }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
             _ => {}
         }
-        
+
         true
     }
 
     /// Сравнивает свойства
-    fn compare_property(&self, prop_value: &serde_json::Value, operator: &str, value: &PropertyValue) -> bool {
+    fn compare_property(
+        &self,
+        prop_value: &serde_json::Value,
+        operator: &str,
+        value: &PropertyValue,
+    ) -> bool {
         match value {
             PropertyValue::String(s) => {
                 if let Some(prop_str) = prop_value.as_str() {
@@ -349,12 +522,12 @@ impl SubscriptionManager {
             PropertyValue::Number(n) => {
                 if let Some(prop_num) = prop_value.as_f64() {
                     match operator {
-                        "=" | "==" => prop_num == n,
-                        "!=" | "<>" => prop_num != n,
-                        ">" => prop_num > n,
-                        "<" => prop_num < n,
-                        ">=" => prop_num >= n,
-                        "<=" => prop_num <= n,
+                        "=" | "==" => prop_num == *n,
+                        "!=" | "<>" => prop_num != *n,
+                        ">" => prop_num > *n,
+                        "<" => prop_num < *n,
+                        ">=" => prop_num >= *n,
+                        "<=" => prop_num <= *n,
                         _ => false,
                     }
                 } else {
@@ -376,21 +549,33 @@ impl SubscriptionManager {
     }
 
     /// Выполняет запрос подписки
-    async fn execute_subscription_query(&self, subscription: &ActiveSubscription) -> Result<Vec<QueryMatch>, String> {
+    async fn execute_subscription_query(
+        &self,
+        subscription: &ActiveSubscription,
+    ) -> Result<Vec<QueryMatch>, String> {
         let results = QueryExecutor::execute_query(&self.store, subscription.query.clone()).await?;
-        
-        let matches = results.into_iter().map(|r| QueryMatch {
-            id: r.id,
-            score: r.score,
-            properties: r.properties,
-            metadata: None,
-        }).collect();
-        
+
+        let matches = results
+            .into_iter()
+            .map(|r| QueryMatch {
+                id: r.id,
+                score: r.score,
+                properties: r.properties,
+                metadata: None,
+            })
+            .collect();
+
         Ok(matches)
     }
 
     /// Отправляет результаты подписки
-    async fn send_results(&self, subscription_id: &str, event: ChangeEvent, results: Vec<QueryMatch>, latency_ms: f64) -> Result<(), String> {
+    async fn send_results(
+        &self,
+        subscription_id: &str,
+        event: ChangeEvent,
+        results: Vec<QueryMatch>,
+        latency_ms: f64,
+    ) -> Result<(), String> {
         let result = SubscriptionResult {
             subscription_id: subscription_id.to_string(),
             event,
@@ -398,11 +583,12 @@ impl SubscriptionManager {
             timestamp: get_timestamp(),
             latency_ms,
         };
-        
+
         let subs = self.subscriptions.read().await;
-        let subscription = subs.get(subscription_id)
+        let subscription = subs
+            .get(subscription_id)
             .ok_or_else(|| format!("Subscription {} not found", subscription_id))?;
-        
+
         match &subscription.emit {
             EmitClause::Changes | EmitClause::Events => {
                 // Логгируем или отправляем в internal channel
@@ -410,7 +596,7 @@ impl SubscriptionManager {
             }
             EmitClause::WebSocket { endpoint } => {
                 // Отправляем через WebSocket
-                self.send_webhook(endpoint, &result).await?;
+                self.send_websocket(endpoint, &result).await?;
             }
             EmitClause::Webhook { url } => {
                 // Отправляем HTTP POST
@@ -421,54 +607,73 @@ impl SubscriptionManager {
                 self.send_grpc(service, &result).await?;
             }
         }
-        
+
         Ok(())
     }
 
     /// Отправляет webhook
     async fn send_webhook(&self, url: &str, payload: &SubscriptionResult) -> Result<(), String> {
         let client = reqwest::Client::new();
-        
-        let response = client.post(url)
+
+        let response = client
+            .post(url)
             .json(payload)
             .timeout(Duration::from_secs(5))
             .send()
             .await
             .map_err(|e| format!("Webhook error: {}", e))?;
-        
+
         if !response.status().is_success() {
             return Err(format!("Webhook returned status: {}", response.status()));
         }
-        
+
         Ok(())
     }
 
     /// Отправляет gRPC
     async fn send_grpc(&self, service: &str, payload: &SubscriptionResult) -> Result<(), String> {
-        // Упрощенная реализация - в production использовать tonic
         tracing::info!("Sending to gRPC service {}: {:?}", service, payload);
+        Ok(())
+    }
+
+    /// Отправляет через WebSocket
+    async fn send_websocket(
+        &self,
+        _endpoint: &str,
+        payload: &SubscriptionResult,
+    ) -> Result<(), String> {
+        // Events are pushed via the broadcast channel handled by SubscriptionWebSocketServer
+        let _ = self.event_tx.send(ChangeEvent::NodeInserted {
+            node_id: 0,
+            node_type: "event".to_string(),
+            properties: serde_json::to_value(payload).unwrap_or_default(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        });
         Ok(())
     }
 
     /// Обновляет статистику подписки
     async fn update_subscription_stats(&self, subscription_id: &str) -> Result<(), String> {
         let mut subs = self.subscriptions.write().await;
-        
+
         if let Some(sub) = subs.get_mut(subscription_id) {
             sub.last_triggered = Some(get_timestamp());
             sub.trigger_count += 1;
         }
-        
+
         Ok(())
     }
 
     /// Увеличивает счетчик ошибок
     async fn increment_error_count(&self, subscription_id: &str) {
         let mut subs = self.subscriptions.write().await;
-        
+
         if let Some(sub) = subs.get_mut(subscription_id) {
             sub.error_count += 1;
-            
+
             // Если слишком много ошибок, помечаем как Error
             if sub.error_count > 10 {
                 sub.status = SubscriptionStatus::Error("Too many errors".to_string());
@@ -480,9 +685,10 @@ impl SubscriptionManager {
     async fn update_stats(&self) {
         let subs = self.subscriptions.read().await;
         let mut stats = self.stats.write().await;
-        
+
         stats.total_subscriptions = subs.len() as u64;
-        stats.active_subscriptions = subs.values()
+        stats.active_subscriptions = subs
+            .values()
             .filter(|s| s.status == SubscriptionStatus::Active)
             .count() as u64;
     }
@@ -501,36 +707,36 @@ impl SubscriptionManager {
 
     /// Создаёт подписку из TQL
     pub async fn create_from_tql(&self, tql: &str) -> Result<String, String> {
-        let (_, query) = crate::tql::parser::parse_query(tql)
-            .map_err(|e| format!("Parse error: {:?}", e))?;
-        
+        let (_, query) =
+            crate::tql::parser::parse_query(tql).map_err(|e| format!("Parse error: {:?}", e))?;
+
         let subscription = Subscription {
             id: None,
             query: Box::new(query),
             emit: EmitClause::Changes,
             where_condition: None,
         };
-        
+
         self.register(subscription).await
     }
 
     /// Экспортирует подписки
     pub async fn export_subscriptions(&self) -> Result<String, String> {
         let subs = self.subscriptions.read().await;
-        serde_json::to_string_pretty(&*subs)
-            .map_err(|e| format!("Export error: {}", e))
+        serde_json::to_string_pretty(&*subs).map_err(|e| format!("Export error: {}", e))
     }
 
     /// Импортирует подписки
     pub async fn import_subscriptions(&self, json: &str) -> Result<(), String> {
-        let subs: HashMap<String, ActiveSubscription> = serde_json::from_str(json)
-            .map_err(|e| format!("Import error: {}", e))?;
-        
+        let subs: HashMap<String, ActiveSubscription> =
+            serde_json::from_str(json).map_err(|e| format!("Import error: {}", e))?;
+
         let mut current_subs = self.subscriptions.write().await;
         for (id, sub) in subs {
             current_subs.insert(id, sub);
         }
-        
+        drop(current_subs);
+
         self.update_stats().await;
         Ok(())
     }
@@ -538,7 +744,10 @@ impl SubscriptionManager {
 
 fn get_timestamp() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 #[cfg(test)]
@@ -555,7 +764,7 @@ mod tests {
     async fn test_register_subscription() {
         let store = create_test_store().await;
         let manager = SubscriptionManager::new(store);
-        
+
         let query = Query::default();
         let subscription = Subscription {
             id: None,
@@ -563,10 +772,10 @@ mod tests {
             emit: EmitClause::Changes,
             where_condition: None,
         };
-        
+
         let id = manager.register(subscription).await.unwrap();
         assert!(!id.is_empty());
-        
+
         let subs = manager.list_subscriptions().await;
         assert_eq!(subs.len(), 1);
     }
@@ -575,7 +784,7 @@ mod tests {
     async fn test_unsubscribe() {
         let store = create_test_store().await;
         let manager = SubscriptionManager::new(store);
-        
+
         let query = Query::default();
         let subscription = Subscription {
             id: None,
@@ -583,10 +792,10 @@ mod tests {
             emit: EmitClause::Changes,
             where_condition: None,
         };
-        
+
         let id = manager.register(subscription).await.unwrap();
         assert!(manager.unsubscribe(&id).await.is_ok());
-        
+
         let subs = manager.list_subscriptions().await;
         assert_eq!(subs.len(), 0);
     }
@@ -595,7 +804,7 @@ mod tests {
     async fn test_pause_resume() {
         let store = create_test_store().await;
         let manager = SubscriptionManager::new(store);
-        
+
         let query = Query::default();
         let subscription = Subscription {
             id: None,
@@ -603,14 +812,14 @@ mod tests {
             emit: EmitClause::Changes,
             where_condition: None,
         };
-        
+
         let id = manager.register(subscription).await.unwrap();
-        
+
         // Pause
         assert!(manager.pause(&id).await.is_ok());
         let sub = manager.get_subscription(&id).await.unwrap();
         assert_eq!(sub.status, SubscriptionStatus::Paused);
-        
+
         // Resume
         assert!(manager.resume(&id).await.is_ok());
         let sub = manager.get_subscription(&id).await.unwrap();
@@ -621,7 +830,7 @@ mod tests {
     async fn test_get_stats() {
         let store = create_test_store().await;
         let manager = SubscriptionManager::new(store);
-        
+
         // Register multiple subscriptions
         for _ in 0..3 {
             let query = Query::default();
@@ -633,7 +842,7 @@ mod tests {
             };
             manager.register(subscription).await.unwrap();
         }
-        
+
         let stats = manager.get_stats().await;
         assert_eq!(stats.total_subscriptions, 3);
         assert_eq!(stats.active_subscriptions, 3);

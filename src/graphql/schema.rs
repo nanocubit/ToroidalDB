@@ -144,10 +144,11 @@ impl QueryRoot {
             .search_similar(&input.query_vector, threshold, limit)
             .await;
         let took = start.elapsed().as_millis() as i64;
+        let total_count = nodes.len();
 
         QueryResult {
             nodes,
-            total_count: nodes.len(),
+            total_count,
             took_ms: took,
         }
     }
@@ -170,12 +171,10 @@ impl QueryRoot {
         };
 
         let limit = limit.unwrap_or(50);
+        let from_id = from_node_id.map(|i| i.to_string());
+        let to_id = to_node_id.map(|i| i.to_string());
         storage
-            .list_edges(
-                from_node_id.as_ref().map(|i| i.to_string()).as_ref(),
-                to_node_id.as_ref().map(|i| i.to_string()).as_ref(),
-                limit,
-            )
+            .list_edges(from_id.as_deref(), to_id.as_deref(), limit)
             .await
     }
 
@@ -221,7 +220,10 @@ impl MutationRoot {
     }
 
     async fn delete_node(&self, ctx: &Context<'_>, id: ID) -> bool {
-        let storage = ctx.data::<Arc<dyn NodeStorage>>().ok()?;
+        let storage = match ctx.data::<Arc<dyn NodeStorage>>() {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
         storage.delete_node(&id.to_string()).await
     }
 
@@ -239,7 +241,10 @@ impl MutationRoot {
     }
 
     async fn delete_edge(&self, ctx: &Context<'_>, id: ID) -> bool {
-        let storage = ctx.data::<Arc<dyn EdgeStorage>>().ok()?;
+        let storage = match ctx.data::<Arc<dyn EdgeStorage>>() {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
         storage.delete_edge(&id.to_string()).await
     }
 

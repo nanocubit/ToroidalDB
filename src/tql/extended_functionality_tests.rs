@@ -53,6 +53,7 @@ mod extended_functionality_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         let results = QueryExecutor::execute_query(&store, query).await.unwrap();
@@ -112,6 +113,7 @@ mod extended_functionality_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         let results = QueryExecutor::execute_query(&store, query).await.unwrap();
@@ -176,6 +178,7 @@ mod extended_functionality_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         let results = QueryExecutor::execute_query(&store, query).await.unwrap();

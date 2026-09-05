@@ -111,12 +111,13 @@ impl ReplicationManager {
     }
 
     pub fn add_node(&self, id: String, endpoint: String, role: NodeRole) -> Arc<ReplicaNode> {
+        let is_master = role == NodeRole::Master;
         let node = Arc::new(ReplicaNode::new(id.clone(), endpoint, role));
 
         let mut nodes = self.nodes.write().unwrap();
         nodes.insert(id.clone(), node.clone());
 
-        if role == NodeRole::Master {
+        if is_master {
             let mut master = self.master_id.write().unwrap();
             *master = Some(id);
         }
@@ -277,13 +278,15 @@ impl ReplicationManager {
         let quorum = (total_slaves + 1) / 2 + 1;
         let quorum_available = active_slaves >= quorum.saturating_sub(1);
 
+        let master_active = master.as_ref().map(|m| m.is_active()).unwrap_or(false);
+
         ReplicationStatus {
-            master_active: master.map(|m| m.is_active()).unwrap_or(false),
+            master_active,
             active_slaves,
             total_slaves,
             quorum_available,
             replication_factor: self.config.replication_factor,
-            healthy: master.map(|m| m.is_active()).unwrap_or(false) && quorum_available,
+            healthy: master_active && quorum_available,
         }
     }
 

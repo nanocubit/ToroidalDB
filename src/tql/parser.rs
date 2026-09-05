@@ -2,7 +2,7 @@ use crate::tql::ast::*;
 use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case, take_while1},
-    character::complete::{alpha1, alphanumeric1, char, digit1, multispace0, multispace1},
+    character::complete::{alpha1, alphanumeric1, char, digit1, multispace0, multispace1, one_of},
     combinator::{map, map_res, opt},
     multi::{many0, separated_list0},
     sequence::{delimited, pair, preceded, separated_pair, tuple},
@@ -15,20 +15,21 @@ fn parse_whitespace(input: &str) -> IResult<&str, ()> {
 }
 
 fn parse_identifier(input: &str) -> IResult<&str, &str> {
-    parse_whitespace(input)?;
-    let (input, ident) = take_while1(|c: char| c.is_alphanumeric() || c == '_')(input)?;
+    let (input, _) = parse_whitespace(input)?;
+    // Точка разрешена для квалифицированных полей вида `alias.field`
+    let (input, ident) = take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '.')(input)?;
     Ok((input, ident))
 }
 
 fn parse_label(input: &str) -> IResult<&str, &str> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = char(':')(input)?;
     let (input, label) = alpha1(input)?;
     Ok((input, label))
 }
 
 fn parse_number(input: &str) -> IResult<&str, f32> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, negative) = opt(char('-'))(input)?;
     let (input, integer_part) = digit1(input)?;
     let (input, decimal_part) = opt(preceded(char('.'), digit1))(input)?;
@@ -52,7 +53,7 @@ fn parse_number(input: &str) -> IResult<&str, f32> {
 }
 
 fn parse_string_literal(input: &str) -> IResult<&str, String> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = char('"')(input)?;
     let (input, content) = take_while1(|c: char| c != '"')(input)?;
     let (input, _) = char('"')(input)?;
@@ -60,7 +61,7 @@ fn parse_string_literal(input: &str) -> IResult<&str, String> {
 }
 
 fn parse_property_value(input: &str) -> IResult<&str, PropertyValue> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     alt((
         map(parse_string_literal, PropertyValue::String),
         map(parse_number, |n| PropertyValue::Number(n as f64)),
@@ -74,10 +75,10 @@ fn parse_property_value(input: &str) -> IResult<&str, PropertyValue> {
 /// Parse HINTS clause for TQL v2.2
 /// Syntax: HINTS [USING GPU|AVX512|AVX2|SCALAR] [SCATTER N SHARDS] [PREFER LOCAL_SHARD]
 fn parse_hints(input: &str) -> IResult<&str, QueryHints> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, _) = tag_no_case("HINTS")(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let mut hints = QueryHints::default();
 
@@ -97,7 +98,7 @@ fn parse_hints(input: &str) -> IResult<&str, QueryHints> {
         hints.backend = Some(backend);
     }
 
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse SCATTER N SHARDS
     let (input, scatter) = opt(preceded(
@@ -109,7 +110,7 @@ fn parse_hints(input: &str) -> IResult<&str, QueryHints> {
         hints.scatter_shards = Some(n);
     }
 
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse PREFER LOCAL_SHARD
     let (input, prefer_local): (&str, Option<&str>) = opt(preceded(
@@ -125,7 +126,7 @@ fn parse_hints(input: &str) -> IResult<&str, QueryHints> {
         hints.prefer_local_shard = true;
     }
 
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse PREFETCH GRAPH_HOPS N
     let (input, prefetch) = opt(preceded(
@@ -146,7 +147,7 @@ fn parse_hints(input: &str) -> IResult<&str, QueryHints> {
 }
 
 fn parse_node_pattern(input: &str) -> IResult<&str, NodePattern> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = char('(')(input)?;
 
     // Parse alias:Label {properties}
@@ -183,7 +184,7 @@ fn parse_node_pattern(input: &str) -> IResult<&str, NodePattern> {
 }
 
 fn parse_direction(input: &str) -> IResult<&str, Direction> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     alt((
         map(
             tuple((
@@ -194,7 +195,7 @@ fn parse_direction(input: &str) -> IResult<&str, Direction> {
                 alpha1,
                 char(']'),
                 char('-'),
-                char('>'),
+                one_of::<&str, &str, nom::error::Error<&str>>(">"),
             )),
             |_| Direction::Outgoing,
         ),
@@ -206,7 +207,7 @@ fn parse_direction(input: &str) -> IResult<&str, Direction> {
                 alpha1,
                 char(']'),
                 char('-'),
-                char('>'),
+                one_of::<&str, &str, nom::error::Error<&str>>(">"),
             )),
             |_| Direction::Outgoing,
         ),
@@ -226,7 +227,26 @@ fn parse_direction(input: &str) -> IResult<&str, Direction> {
 }
 
 fn parse_relationship_pattern(input: &str) -> IResult<&str, RelationshipPattern> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
+
+    // Входящая связь: <-[:TYPE]- (разбираем до общей ветки, иначе '-' не сойдётся)
+    if let Ok((input, _)) = char::<&str, nom::error::Error<&str>>('<')(input) {
+        let (input, _) = char('-')(input)?;
+        let (input, _) = char('[')(input)?;
+        let (input, _) = char(':')(input)?;
+        let (input, rel_type) = alpha1(input)?;
+        let (input, _) = char(']')(input)?;
+        let (input, _) = char('-')(input)?;
+
+        return Ok((
+            input,
+            RelationshipPattern {
+                type_: rel_type.to_string(),
+                direction: Direction::Incoming,
+            },
+        ));
+    }
+
     let (input, _) = char('-')(input)?;
     let (input, _) = char('[')(input)?;
     let (input, _) = char(':')(input)?;
@@ -234,8 +254,11 @@ fn parse_relationship_pattern(input: &str) -> IResult<&str, RelationshipPattern>
     let (input, _) = char(']')(input)?;
 
     let (input, direction) = alt((
-        map(char('>'), |_| Direction::Outgoing),
-        map(char('<'), |_| Direction::Incoming),
+        // Outgoing: ->
+        map(tuple((char('-'), char('>'))), |_| Direction::Outgoing),
+        // Incoming: <-
+        map(tuple((char('<'), char('-'))), |_| Direction::Incoming),
+        // Both: -
         map(char('-'), |_| Direction::Both),
     ))(input)?;
 
@@ -249,17 +272,17 @@ fn parse_relationship_pattern(input: &str) -> IResult<&str, RelationshipPattern>
 }
 
 fn parse_match_clause(input: &str) -> IResult<&str, MatchClause> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("MATCH")(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, source) = parse_node_pattern(input)?;
 
     // Check if there's a relationship pattern
     let (input, relationship_and_target) = opt(|input| {
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, relationship) = parse_relationship_pattern(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, target) = parse_node_pattern(input)?;
         Ok((input, (relationship, target)))
     })(input)?;
@@ -280,15 +303,15 @@ fn parse_match_clause(input: &str) -> IResult<&str, MatchClause> {
 }
 
 fn parse_toroidal_distance(input: &str) -> IResult<&str, WhereCondition> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("TOROIDALDISTANCE")(input)?;
     let (input, _) = char('(')(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, field) = parse_identifier(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = char(',')(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, threshold) = parse_number(input)?;
 
     let (input, _) = char(')')(input)?;
@@ -302,20 +325,43 @@ fn parse_toroidal_distance(input: &str) -> IResult<&str, WhereCondition> {
     ))
 }
 
+fn parse_similar_to(input: &str) -> IResult<&str, WhereCondition> {
+    let (input, _) = parse_whitespace(input)?;
+    let (input, _) = tag_no_case("SIMILAR_TO")(input)?;
+    let (input, _) = char('(')(input)?;
+    let (input, _) = parse_whitespace(input)?;
+
+    let (input, field) = parse_identifier(input)?;
+    let (input, _) = parse_whitespace(input)?;
+    let (input, _) = char(',')(input)?;
+    let (input, _) = parse_whitespace(input)?;
+    let (input, threshold) = parse_number(input)?;
+
+    let (input, _) = char(')')(input)?;
+
+    Ok((
+        input,
+        WhereCondition::SimilarTo {
+            field: field.to_string(),
+            threshold,
+        },
+    ))
+}
+
 fn parse_where_condition(input: &str) -> IResult<&str, WhereCondition> {
-    parse_toroidal_distance(input)
+    alt((parse_similar_to, parse_toroidal_distance))(input)
 }
 
 fn parse_return_clause(input: &str) -> IResult<&str, ReturnClause> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("RETURN")(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, first_field) = parse_identifier(input)?;
     let (input, additional_fields) = many0(|input| {
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, _) = char(',')(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         parse_identifier(input)
     })(input)?;
 
@@ -326,9 +372,9 @@ fn parse_return_clause(input: &str) -> IResult<&str, ReturnClause> {
 }
 
 fn parse_limit_clause(input: &str) -> IResult<&str, LimitClause> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("LIMIT")(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, count_str) = digit1(input)?;
     let count = count_str.parse().unwrap_or(10);
@@ -337,30 +383,37 @@ fn parse_limit_clause(input: &str) -> IResult<&str, LimitClause> {
 }
 
 fn parse_connected_clause(input: &str) -> IResult<&str, ConnectedClause> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("CONNECTEDTO")(input)?;
     let (input, _) = char('(')(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, target_label) = parse_identifier(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = char(',')(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, relationship_type) = parse_string_literal(input)?;
-    parse_whitespace(input)?;
+
+    // Опциональный второй строковый аргумент уточняет итоговый тип связи:
+    // CONNECTEDTO(label, "CANDIDATE", "ACTUAL_REL")
+    let (input, relationship_type) = match opt(preceded(char(','), parse_string_literal))(input)? {
+        (input, Some(refined)) => (input, refined),
+        (input, None) => (input, relationship_type),
+    };
+    let (input, _) = parse_whitespace(input)?;
 
     // Optional property filter
     let (input, property_filter) = if input.starts_with(',') {
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, _) = char(',')(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, prop_name) = parse_identifier(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, _) = char(',')(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, prop_value) = parse_property_value(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, _) = char(')')(input)?;
         (input, Some((prop_name.to_string(), prop_value)))
     } else {
@@ -379,7 +432,7 @@ fn parse_connected_clause(input: &str) -> IResult<&str, ConnectedClause> {
 }
 
 fn parse_aggregation_function(input: &str) -> IResult<&str, AggregationFunction> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, func_name) = alt((
         tag_no_case("COUNT"),
@@ -390,10 +443,10 @@ fn parse_aggregation_function(input: &str) -> IResult<&str, AggregationFunction>
     ))(input)?;
 
     let (input, _) = char('(')(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, field) = parse_identifier(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, _) = char(')')(input)?;
 
@@ -415,7 +468,7 @@ fn parse_aggregation_function(input: &str) -> IResult<&str, AggregationFunction>
 }
 
 fn parse_aggregation_field(input: &str) -> IResult<&str, AggregationField> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Проверяем, является ли это агрегацией
     if input.to_uppercase().starts_with("COUNT(")
@@ -428,9 +481,9 @@ fn parse_aggregation_field(input: &str) -> IResult<&str, AggregationField> {
 
         // Проверяем наличие AS alias
         let (input, alias) = if input.to_uppercase().starts_with("AS") {
-            parse_whitespace(input)?;
+            let (input, _) = parse_whitespace(input)?;
             let (input, _) = tag_no_case("AS")(input)?;
-            parse_whitespace(input)?;
+            let (input, _) = parse_whitespace(input)?;
             let (input, alias) = parse_identifier(input)?;
             (input, Some(alias.to_string()))
         } else {
@@ -450,9 +503,9 @@ fn parse_aggregation_field(input: &str) -> IResult<&str, AggregationField> {
 fn parse_return_clause_with_aggregations(
     input: &str,
 ) -> IResult<&str, (Vec<String>, Vec<AggregationField>)> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("RETURN")(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Разбираем список полей, которые могут быть как обычными, так и агрегациями
     let mut regular_fields = Vec::new();
@@ -478,10 +531,11 @@ fn parse_return_clause_with_aggregations(
 
     // Парсим остальные поля, разделенные запятыми
     loop {
-        parse_whitespace(remaining_input)?;
+        let (after_ws, _) = parse_whitespace(remaining_input)?;
+        remaining_input = after_ws;
         if remaining_input.starts_with(',') {
             let (input, _) = char(',')(remaining_input)?;
-            parse_whitespace(input)?;
+            let (input, _) = parse_whitespace(input)?;
 
             let (next_input, _) = if input.to_uppercase().starts_with("COUNT(")
                 || input.to_uppercase().starts_with("SUM(")
@@ -510,12 +564,12 @@ fn parse_return_clause_with_aggregations(
 }
 
 fn parse_order_by_clause(input: &str) -> IResult<&str, OrderByClause> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("ORDER BY")(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, field) = parse_identifier(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Проверяем направление сортировки
     let (input, ascending) = if input.to_uppercase().starts_with("DESC") {
@@ -539,18 +593,18 @@ fn parse_order_by_clause(input: &str) -> IResult<&str, OrderByClause> {
 }
 
 fn parse_within_clause(input: &str) -> IResult<&str, WithinClause> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("WITHIN")(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     let (input, min_hops_str) = digit1(input)?;
     let min_hops = min_hops_str.parse().unwrap_or(1);
 
     // Проверяем, есть ли диапазон (например, "2 TO 5 HOPS")
+    let (input, _) = parse_whitespace(input)?;
     let (input, max_hops) = if input.to_uppercase().starts_with("TO") {
-        parse_whitespace(input)?;
         let (input, _) = tag_no_case("TO")(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, max_hops_str) = digit1(input)?;
         let max_hops = max_hops_str.parse().unwrap_or(min_hops);
         (input, max_hops)
@@ -558,20 +612,20 @@ fn parse_within_clause(input: &str) -> IResult<&str, WithinClause> {
         (input, min_hops)
     };
 
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
     let (input, _) = tag_no_case("HOPS")(input)?;
 
     Ok((input, WithinClause { min_hops, max_hops }))
 }
 
 pub fn parse_query(input: &str) -> IResult<&str, Query> {
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse optional DISTRIBUTED keyword
     let (input, distributed) = if input.to_uppercase().starts_with("DISTRIBUTED") {
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, _) = tag_no_case("DISTRIBUTED")(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         (input, true)
     } else {
         (input, false)
@@ -587,19 +641,19 @@ pub fn parse_query(input: &str) -> IResult<&str, Query> {
 
     // Parse the match clause
     let (input, match_clause) = parse_match_clause(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse optional WHERE clause
     let (input, where_clause) = if input.to_uppercase().starts_with("WHERE") {
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, _) = tag_no_case("WHERE")(input)?;
-        parse_whitespace(input)?;
+        let (input, _) = parse_whitespace(input)?;
         let (input, clause) = parse_where_condition(input)?;
         (input, Some(clause))
     } else {
         (input, None) // No WHERE clause
     };
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse optional CONNECTEDTO clause
     let (input, connected_clause) = if input.to_uppercase().starts_with("CONNECTEDTO") {
@@ -608,7 +662,7 @@ pub fn parse_query(input: &str) -> IResult<&str, Query> {
     } else {
         (input, None) // No CONNECTEDTO clause
     };
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse optional WITHIN HOPS clause
     let (input, within_clause) = if input.to_uppercase().starts_with("WITHIN") {
@@ -617,12 +671,12 @@ pub fn parse_query(input: &str) -> IResult<&str, Query> {
     } else {
         (input, None) // No WITHIN HOPS clause
     };
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse RETURN clause with aggregations
     let (input, (return_fields, aggregation_fields)) =
         parse_return_clause_with_aggregations(input)?;
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
     // Parse optional ORDER BY clause
     let (input, order_by) = if input.to_uppercase().starts_with("ORDER BY") {
@@ -631,10 +685,12 @@ pub fn parse_query(input: &str) -> IResult<&str, Query> {
     } else {
         (input, None) // No ORDER BY clause
     };
-    parse_whitespace(input)?;
+    let (input, _) = parse_whitespace(input)?;
 
-    // Parse LIMIT clause
-    let (input, limit_clause) = parse_limit_clause(input)?;
+    // Parse optional LIMIT clause
+    let (input, limit_clause) = opt(parse_limit_clause)(input)?;
+    let default_limit = 10;
+    let limit = limit_clause.map(|c| c.count).unwrap_or(default_limit);
 
     Ok((
         input,
@@ -650,10 +706,15 @@ pub fn parse_query(input: &str) -> IResult<&str, Query> {
             order_by,
             subqueries: Vec::new(),
             transaction: None,
-            limit: limit_clause.count,
+            limit,
             distributed,
             hints,
             query_hash: 0,
+            from_stream: None,
+            group_by: Vec::new(),
+            having: None,
+            analytics: Vec::new(),
+            query_vector: None,
         },
     ))
 }
@@ -774,5 +835,71 @@ mod tests {
         let input = "MATCH (node:Label)";
         let result = parse_match_clause(input);
         assert!(result.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod debug_probe {
+    use super::*;
+
+    #[test]
+    fn debug_rel_pattern() {
+        println!("OUT: {:?}", parse_relationship_pattern("-[:F]->(b:X)"));
+        println!("IN : {:?}", parse_relationship_pattern("<-[:F]-(b:X)"));
+        println!("UND: {:?}", parse_relationship_pattern("-[:F]-(b:X)"));
+    }
+
+    #[test]
+    fn debug_char_gt() {
+        use nom::character::complete::char;
+        println!(
+            "gt: {:?}",
+            char::<&str, nom::error::Error<&str>>('>')("->x")
+        );
+        let tail = "-[:F]->x".split_at(5).1; // after "-[:"F]
+        println!("tail={:?}", tail);
+        let dash = char::<&str, nom::error::Error<&str>>('-');
+        let gt = char::<&str, nom::error::Error<&str>>('>');
+        println!("dash then gt: {:?}", nom::sequence::tuple((dash, gt))(tail));
+    }
+
+    #[test]
+    fn debug_step_by_step() {
+        use nom::character::complete::char;
+        use nom::sequence::tuple;
+
+        let input = "-[:F]->x";
+        println!("input={:?}", input);
+
+        // Parse "-["
+        let r1 = tuple((
+            char::<&str, nom::error::Error<&str>>('-'),
+            char::<&str, nom::error::Error<&str>>('['),
+        ))(input);
+        println!("after -[: {:?}", r1);
+
+        if let Ok((rest, _)) = r1 {
+            // Parse ":"
+            let r2 = char::<&str, nom::error::Error<&str>>(':')(rest);
+            println!("after : {:?}", r2);
+
+            if let Ok((rest2, _)) = r2 {
+                // Parse "F"
+                let r3 = nom::character::complete::alpha1::<&str, nom::error::Error<&str>>(rest2);
+                println!("after F {:?}", r3);
+
+                if let Ok((rest3, _)) = r3 {
+                    // Parse "]"
+                    let r4 = char::<&str, nom::error::Error<&str>>(']')(rest3);
+                    println!("after ] {:?}", r4);
+
+                    if let Ok((rest4, _)) = r4 {
+                        // Now try >
+                        let r5 = char::<&str, nom::error::Error<&str>>('>')(rest4);
+                        println!("after > {:?}", r5);
+                    }
+                }
+            }
+        }
     }
 }

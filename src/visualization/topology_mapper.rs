@@ -1,15 +1,18 @@
 //! Топологический маппер для ToroidalDB
-//! 
+//!
 //! Предоставляет визуализацию топологических структур:
 //! - Тороидальные пространства
 //! - Гомотопические классы
 //! - Поток Риччи
 //! - Топологические инварианты
 
-use crate::storage::Node;
-use crate::topology::edges::{HomotopyClass, InterToroidalEdge, ToroidalLevel};
-use crate::topology::functions::{toroidal_distance as topological_distance, compute_homotopy_class, ricci_curvature, topological_centrality};
+use crate::hybrid_storage::Node as HybridNode;
 use crate::math::MatryoshkaDim;
+use crate::topology::edges::{HomotopyClass, InterToroidalEdge, ToroidalLevel};
+use crate::topology::functions::{
+    compute_homotopy_class, ricci_curvature, topological_centrality,
+    toroidal_distance as topological_distance,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -72,14 +75,19 @@ impl TopologyMapper {
         level: ToroidalLevel,
         include_inter_level: bool,
     ) -> Result<TopologicalMap, String> {
-        let all_nodes = self.store.get_all().map_err(|e| e.to_string())?;
-        
+        let all_nodes: Vec<crate::hybrid_storage::Node> = self
+            .store
+            .get_all()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|n| n.into())
+            .collect();
+
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
         let mut homotopy_classes = HashSet::new();
 
-        // Фильтруем узлы по уровню
-        for node in all_nodes {
+        for node in &all_nodes {
             if self.belongs_to_level(&node, level) {
                 let topo_node = self.node_to_topological_node(&node, level)?;
                 nodes.push(topo_node);
@@ -108,8 +116,9 @@ impl TopologyMapper {
         if include_inter_level {
             let inter_level_edges = self.get_inter_toroidal_edges()?;
             for edge in inter_level_edges {
-                if self.belongs_to_level_by_id(edge.source.1, level) || 
-                   self.belongs_to_level_by_id(edge.target.1, level) {
+                if self.belongs_to_level_by_id(edge.source.1, level)
+                    || self.belongs_to_level_by_id(edge.target.1, level)
+                {
                     edges.push(TopologicalEdge {
                         source: edge.source.1,
                         target: edge.target.1,
@@ -139,15 +148,15 @@ impl TopologyMapper {
     /// Преобразует обычный узел в топологический узел
     fn node_to_topological_node(
         &self,
-        node: &Node,
+        node: &crate::hybrid_storage::Node,
         level: ToroidalLevel,
     ) -> Result<TopologicalNode, String> {
         // Вычисляем гомотопический класс узла
         let homotopy_class = self.compute_node_homotopy_class(node, level)?;
-        
+
         // Определяем позицию в топологическом пространстве
         let (x, y) = self.position_in_torus_space(&node.vector, level)?;
-        
+
         Ok(TopologicalNode {
             id: node.id,
             vector: node.vector.clone(),
@@ -169,17 +178,29 @@ impl TopologyMapper {
         edge: &crate::storage::Edge,
     ) -> Result<TopologicalEdge, String> {
         // Получаем узлы для вычисления топологического расстояния
-        let source_node = self.store.get(source_id).map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Source node {} not found", source_id))?;
-        let target_node = self.store.get(target_id).map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Target node {} not found", target_id))?;
-        
+        let source_node: crate::hybrid_storage::Node = self
+            .store
+            .get(source_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Source node {} not found", source_id))?
+            .into();
+        let target_node: crate::hybrid_storage::Node = self
+            .store
+            .get(target_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Target node {} not found", target_id))?
+            .into();
+
         // Вычисляем топологическое расстояние
         let topological_distance = topological_distance(&source_node.vector, &target_node.vector);
-        
+
         // Вычисляем гомотопический класс пути
-        let homotopy_class = compute_homotopy_class(&source_node, &target_node, MatryoshkaDim::from_size(source_node.vector.len()));
-        
+        let homotopy_class = compute_homotopy_class(
+            &source_node,
+            &target_node,
+            MatryoshkaDim::from_size(source_node.vector.len()),
+        );
+
         Ok(TopologicalEdge {
             source: source_id,
             target: target_id,
@@ -196,7 +217,7 @@ impl TopologyMapper {
     }
 
     /// Проверяет, принадлежит ли узел к определенному уровню
-    fn belongs_to_level(&self, node: &Node, level: ToroidalLevel) -> bool {
+    fn belongs_to_level(&self, node: &crate::hybrid_storage::Node, level: ToroidalLevel) -> bool {
         // В реальной системе это будет более сложная логика
         // Пока просто проверяем размер вектора
         let expected_size = match level {
@@ -205,37 +226,56 @@ impl TopologyMapper {
             ToroidalLevel::D1024 => 1024,
             ToroidalLevel::D1536 => 1536,
         };
-        
+
         node.vector.len() <= expected_size
     }
 
     /// Проверяет принадлежность узла к уровню по ID
     fn belongs_to_level_by_id(&self, node_id: u64, level: ToroidalLevel) -> bool {
         if let Ok(Some(node)) = self.store.get(node_id) {
-            self.belongs_to_level(&node, level)
+            let hybrid: crate::hybrid_storage::Node = node.into();
+            self.belongs_to_level(&hybrid, level)
         } else {
             false
         }
     }
 
     /// Вычисляет гомотопический класс узла
-    fn compute_node_homotopy_class(&self, node: &Node, level: ToroidalLevel) -> Result<HomotopyClass, String> {
+    fn compute_node_homotopy_class(
+        &self,
+        node: &crate::hybrid_storage::Node,
+        level: ToroidalLevel,
+    ) -> Result<HomotopyClass, String> {
         // В реальной системе это будет более сложное вычисление
         // Пока возвращаем Direct для простоты
         Ok(HomotopyClass::Direct)
     }
 
     /// Определяет позицию узла в тороидальном пространстве
-    fn position_in_torus_space(&self, vector: &[f32], level: ToroidalLevel) -> Result<(f32, f32), String> {
+    fn position_in_torus_space(
+        &self,
+        vector: &[f32],
+        level: ToroidalLevel,
+    ) -> Result<(f32, f32), String> {
         if vector.is_empty() {
             return Ok((0.0, 0.0));
         }
 
         // Используем первые два элемента вектора как координаты
         // Если вектор короче, используем циклическое дополнение
-        let x = if vector.len() > 0 { vector[0].rem_euclid(1.0) } else { 0.0 };
-        let y = if vector.len() > 1 { vector[1].rem_euclid(1.0) } else { 
-            if vector.len() > 0 { vector[0].rem_euclid(1.0) } else { 0.0 } 
+        let x = if vector.len() > 0 {
+            vector[0].rem_euclid(1.0)
+        } else {
+            0.0
+        };
+        let y = if vector.len() > 1 {
+            vector[1].rem_euclid(1.0)
+        } else {
+            if vector.len() > 0 {
+                vector[0].rem_euclid(1.0)
+            } else {
+                0.0
+            }
         };
 
         Ok((x, y))
@@ -249,28 +289,29 @@ impl TopologyMapper {
     ) -> Result<TopologicalMetadata, String> {
         let node_count = nodes.len();
         let edge_count = edges.len();
-        
+
         // Вычисляем эйлерову характеристику (для тора = 0)
         let euler_characteristic = if node_count > 0 { 0 } else { 0 }; // Для тора всегда 0
-        
+
         // Вычисляем числа Бетти (для тора: b0=1, b1=2, b2=1)
         let betti_numbers = vec![1, 2, 1]; // Пример для 2D тора
-        
+
         // Вычисляем среднюю кривизну Риччи
         let ricci_curvature_avg = self.compute_average_ricci_curvature(nodes)?;
-        
+
         // Вычисляем топологическую плотность
         let topological_density = if node_count > 1 {
             (2.0 * edge_count as f32) / (node_count * (node_count - 1)) as f32
         } else {
             0.0
         };
-        
+
         // Вычисляем количество компонентов связности
         let connected_components = self.count_connected_components(nodes, edges);
-        
+
         // Вычисляем количество уникальных гомотопических классов
-        let homotopy_class_count = edges.iter()
+        let homotopy_class_count = edges
+            .iter()
             .map(|e| format!("{:?}", e.homotopy_class))
             .collect::<HashSet<_>>()
             .len();
@@ -296,9 +337,15 @@ impl TopologyMapper {
 
         for node in nodes {
             if let Ok(Some(original_node)) = self.store.get(node.id) {
-                // Вычисляем кривизну Риччи для узла
-                let all_nodes = self.store.get_all().map_err(|e| e.to_string())?;
-                let curvature = ricci_curvature(&original_node, &all_nodes, 0.3);
+                let hybrid_node: crate::hybrid_storage::Node = original_node.into();
+                let all_nodes: Vec<crate::hybrid_storage::Node> = self
+                    .store
+                    .get_all()
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .map(|n| n.into())
+                    .collect();
+                let curvature = ricci_curvature(&hybrid_node, &hybrid_node, &all_nodes, 0.3);
                 total_curvature += curvature;
                 count += 1;
             }
@@ -312,7 +359,11 @@ impl TopologyMapper {
     }
 
     /// Считает количество компонентов связности
-    fn count_connected_components(&self, nodes: &[TopologicalNode], edges: &[TopologicalEdge]) -> usize {
+    fn count_connected_components(
+        &self,
+        nodes: &[TopologicalNode],
+        edges: &[TopologicalEdge],
+    ) -> usize {
         if nodes.is_empty() {
             return 0;
         }
@@ -331,16 +382,21 @@ impl TopologyMapper {
     }
 
     /// Выполняет DFS для маркировки компонента связности
-    fn dfs_mark_component(&self, start_node: u64, edges: &[TopologicalEdge], visited: &mut HashSet<u64>) {
+    fn dfs_mark_component(
+        &self,
+        start_node: u64,
+        edges: &[TopologicalEdge],
+        visited: &mut HashSet<u64>,
+    ) {
         let mut stack = vec![start_node];
-        
+
         while let Some(current) = stack.pop() {
             if visited.contains(&current) {
                 continue;
             }
-            
+
             visited.insert(current);
-            
+
             // Добавляем соседей в стек
             for edge in edges {
                 if edge.source == current && !visited.contains(&edge.target) {
@@ -368,43 +424,14 @@ impl TopologyMapper {
     /// Создает 3D визуализацию топологии
     pub fn create_3d_visualization(&self, level: ToroidalLevel) -> Result<String, String> {
         let topo_map = self.create_topological_map(level, true)?;
-        
+
         // Создаем HTML с 3D визуализацией (упрощённо)
-        let html = format!(
-            r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>ToroidalDB 3D Topology Visualization</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="https://unpkg.com/three@0.144.0/build/three.min.js"></script>
-    <style>
-        body {{ margin: 0; overflow: hidden; }}
-        #info {{
-            position: absolute;
-            top: 10px;
-            width: 100%;
-            text-align: center;
-            color: white;
-            font-family: Monospace;
-            font-size: 13px;
-            font-weight: bold;
-        }}
-    </style>
-</head>
-<body>
-    <div id="info">ToroidalDB Topology Visualization - Level: {:?}</div>
-    <div id="container"></div>
-    
-    <script>
-        // THREE.js код для 3D визуализации топологии
-        // В реальной системе здесь будет сложная визуализация
-        console.log("3D topology visualization for level {:?}", {});
+        let html = r#"<script>
+        console.log("3D topology visualization for level {}", "__LEVEL__");
     </script>
 </body>
-</html>"#, 
-            level, 
-            format!("{:?}", level)
-        );
+</html>"#
+            .replace("__LEVEL__", &format!("{:?}", level));
 
         Ok(html)
     }
@@ -412,38 +439,37 @@ impl TopologyMapper {
     /// Создает 2D визуализацию топологии
     pub fn create_2d_visualization(&self, level: ToroidalLevel) -> Result<String, String> {
         let topo_map = self.create_topological_map(level, true)?;
-        
+
         // Создаем HTML с 2D визуализацией
-        let html = format!(
-            r#"<!DOCTYPE html>
+        let nodes_json = serde_json::to_string(&topo_map.nodes).map_err(|e| e.to_string())?;
+        let edges_json = serde_json::to_string(&topo_map.edges).map_err(|e| e.to_string())?;
+        let html = r##"<!DOCTYPE html>
 <html>
 <head>
     <title>ToroidalDB 2D Topology Visualization</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        .node {{ stroke: #fff; stroke-width: 1.5px; }}
-        .link {{ stroke: #999; stroke-opacity: 0.6; }}
-        body {{ font-family: Arial, sans-serif; }}
-        #chart {{ width: 100vw; height: 100vh; }}
+        .node { stroke: #fff; stroke-width: 1.5px; }
+        .link { stroke: #999; stroke-opacity: 0.6; }
+        body { font-family: Arial, sans-serif; }
+        #chart { width: 100vw; height: 100vh; }
     </style>
 </head>
 <body>
-    <h1>ToroidalDB Topology Visualization - Level: {:?}</h1>
+    <h1>ToroidalDB Topology Visualization - Level: __LEVEL__</h1>
     <div id="chart"></div>
-    
+
     <script>
-        // D3.js код для визуализации топологии
         const width = window.innerWidth;
         const height = window.innerHeight;
-        
+
         const svg = d3.select("#chart")
             .append("svg")
             .attr("width", width)
             .attr("height", height);
-        
-        // Данные для визуализации
-        const nodes = {};
-        const links = {};
+
+        const nodes = __NODES__;
+        const links = __EDGES__;
         
         // Создаем силовой граф
         const simulation = d3.forceSimulation(nodes)
@@ -506,11 +532,10 @@ impl TopologyMapper {
         }
     </script>
 </body>
-</html>"#,
-            level,
-            serde_json::to_string(&topo_map.nodes).map_err(|e| e.to_string())?,
-            serde_json::to_string(&topo_map.edges).map_err(|e| e.to_string())?
-        );
+</html>"##
+            .replace("__LEVEL__", &format!("{:?}", level))
+            .replace("__NODES__", &nodes_json)
+            .replace("__EDGES__", &edges_json);
 
         Ok(html)
     }
@@ -519,12 +544,12 @@ impl TopologyMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hybrid_storage::HybridPersistentStore;
+    use crate::storage::PersistentStore;
     use serde_json::json;
 
     #[test]
     fn test_topology_mapper_creation() {
-        let store = Arc::new(HybridPersistentStore::open("./test_topology_data").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_topology_data").unwrap());
         let mapper = TopologyMapper::new(store);
 
         assert_eq!(mapper.store.len().unwrap(), 0);
@@ -532,11 +557,11 @@ mod tests {
 
     #[test]
     fn test_topological_map_creation() {
-        let store = Arc::new(HybridPersistentStore::open("./test_topology_data2").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_topology_data2").unwrap());
         let mapper = TopologyMapper::new(store);
 
         // Создаем тестовый узел
-        let test_node = Node {
+        let test_node = crate::storage::Node {
             id: 1,
             vector: vec![0.5, 0.3, 0.7],
             properties: json!({"name": "Test Node"}),
@@ -553,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_2d_visualization() {
-        let store = Arc::new(HybridPersistentStore::open("./test_topology_data3").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_topology_data3").unwrap());
         let mapper = TopologyMapper::new(store);
 
         let result = mapper.create_2d_visualization(ToroidalLevel::D384);
@@ -563,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_3d_visualization() {
-        let store = Arc::new(HybridPersistentStore::open("./test_topology_data4").unwrap());
+        let store = Arc::new(PersistentStore::open("./test_topology_data4").unwrap());
         let mapper = TopologyMapper::new(store);
 
         let result = mapper.create_3d_visualization(ToroidalLevel::D768);

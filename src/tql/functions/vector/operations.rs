@@ -191,14 +191,18 @@ mod tests {
 
     #[test]
     fn test_vector_sum() {
-        let vecs = vec![&vec![1.0, 2.0], &vec![3.0, 4.0]];
+        let v1 = vec![1.0f32, 2.0];
+        let v2 = vec![3.0f32, 4.0];
+        let vecs: Vec<&[f32]> = vec![&v1, &v2];
         let result = vector_sum(&vecs);
         assert_eq!(result, vec![4.0, 6.0]);
     }
 
     #[test]
     fn test_vector_mean() {
-        let vecs = vec![&vec![1.0, 3.0], &vec![3.0, 5.0]];
+        let v1 = vec![1.0f32, 3.0];
+        let v2 = vec![3.0f32, 5.0];
+        let vecs: Vec<&[f32]> = vec![&v1, &v2];
         let result = vector_mean(&vecs);
         assert_eq!(result, vec![2.0, 4.0]);
     }

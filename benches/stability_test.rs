@@ -7,9 +7,9 @@ use tokio::time::sleep;
 // Убедитесь, что этот файл находится внутри src/, иначе используйте имя вашего крейта вместо `crate::`
 // Импорты модулей вашего проекта.
 // Убедитесь, что этот файл находится внутри src/, иначе используйте имя вашего крейта вместо `crate::`
-use crate::hybrid_storage::{HybridPersistentStore, Node};
-use crate::tql::executor::QueryExecutor;
-use crate::tql::parser;
+use toroidal_db::hybrid_storage::{HybridPersistentStore, Node};
+use toroidal_db::tql::executor::QueryExecutor;
+use toroidal_db::tql::parser;
 
 #[tokio::main]
 async fn main() {
@@ -38,11 +38,11 @@ fn setup_test_store(path: &str, node_count: usize) -> Arc<HybridPersistentStore>
     // Очистка перед созданием, если вдруг остался мусор от прошлого прогона
     let _ = std::fs::remove_dir_all(path);
 
-    let store = Arc::new(PersistentStore::open(path).expect("Не удалось открыть хранилище"));
+    let store = Arc::new(HybridPersistentStore::open(path).expect("Не удалось открыть хранилище"));
 
     for i in 1..=node_count {
-        let node = crate::hybrid_storage::Node {
-            id: i,
+        let node = Node {
+            id: i as u64,
             vector: vec![i as f32 * 0.01, 0.5],
             properties: json!({"id": i, "name": format!("node_{}", i)}),
             edges: vec![],

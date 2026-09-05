@@ -1,12 +1,12 @@
 //! # ONNX Runtime Embedding Service для ToroidalDB
-//! 
+//!
 //! Production-ready реализация с использованием ONNX Runtime
 //! для модели multilingual-e5-small
-//! 
+//!
 //! ## Требования
 //! - ONNX Runtime library (устанавливается автоматически через ort crate)
 //! - Модель multilingual-e5-small в формате ONNX
-//! 
+//!
 //! ## Установка модели
 //! ```bash
 //! # Скачать модель с HuggingFace
@@ -133,10 +133,10 @@ impl OnnxEmbeddingService {
     pub async fn initialize_tokenizer(&self) -> Result<()> {
         let tokenizer = Tokenizer::from_path(&self.config.tokenizer_path)
             .context("Failed to load tokenizer")?;
-        
+
         let mut tokenizer_guard = self.tokenizer.write().await;
         *tokenizer_guard = Some(tokenizer);
-        
+
         Ok(())
     }
 
@@ -172,7 +172,7 @@ impl OnnxEmbeddingService {
         let tokenizer_guard = self.tokenizer.read().await;
         let tokenizer = tokenizer_guard.as_ref().unwrap();
         let tokens = tokenizer.encode(&prepared_text, self.config.max_seq_length)?;
-        
+
         // Создание входных тензоров
         let input_ids = tokens.input_ids;
         let attention_mask = tokens.attention_mask;
@@ -181,18 +181,21 @@ impl OnnxEmbeddingService {
         // Конвертация в ONNX тензоры
         let input_ids_array = Array2::from_shape_vec(
             (1, input_ids.len()),
-            input_ids.iter().map(|&x| x as i64).collect::<Vec<_>>()
-        ).unwrap();
+            input_ids.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+        )
+        .unwrap();
 
         let attention_mask_array = Array2::from_shape_vec(
             (1, attention_mask.len()),
-            attention_mask.iter().map(|&x| x as i64).collect::<Vec<_>>()
-        ).unwrap();
+            attention_mask.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+        )
+        .unwrap();
 
         let token_type_ids_array = Array2::from_shape_vec(
             (1, token_type_ids.len()),
-            token_type_ids.iter().map(|&x| x as i64).collect::<Vec<_>>()
-        ).unwrap();
+            token_type_ids.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+        )
+        .unwrap();
 
         // Запуск инференса
         let inputs = vec![
@@ -202,15 +205,15 @@ impl OnnxEmbeddingService {
         ];
 
         let outputs = self.session.run(inputs)?;
-        
+
         // Извлечение эмбеддинга (последний слой, mean pooling)
         let last_hidden_state: ort::Value = outputs[0].try_extract_tensor::<f32>()?;
         let attention_mask_slice: ort::Value = outputs[1].try_extract_tensor::<f32>()?;
-        
+
         // Mean pooling по attention mask
         let embedding = self.mean_pooling(
             last_hidden_state.view().into_owned(),
-            attention_mask_slice.view().into_owned()
+            attention_mask_slice.view().into_owned(),
         );
 
         // L2 нормализация
@@ -230,13 +233,15 @@ impl OnnxEmbeddingService {
 
     #[cfg(not(feature = "embeddings"))]
     pub async fn generate_embedding(&self, _text: &str, _is_query: bool) -> Result<Vec<f32>> {
-        Err(anyhow::anyhow!(
-            "ONNX embeddings feature is not enabled"
-        ))
+        Err(anyhow::anyhow!("ONNX embeddings feature is not enabled"))
     }
 
     /// Mean pooling для BERT-like моделей
-    fn mean_pooling(&self, last_hidden_state: Array2<f32>, attention_mask: Array2<f32>) -> Array1<f32> {
+    fn mean_pooling(
+        &self,
+        last_hidden_state: Array2<f32>,
+        attention_mask: Array2<f32>,
+    ) -> Array1<f32> {
         let (_, hidden_size) = last_hidden_state.dim();
         let mut sum = vec![0.0f32; hidden_size];
         let mut count = 0.0f32;
@@ -269,21 +274,19 @@ impl OnnxEmbeddingService {
     #[cfg(feature = "embeddings")]
     pub async fn generate_batch(&self, texts: &[&str], is_query: bool) -> Result<Vec<Vec<f32>>> {
         let mut embeddings = Vec::with_capacity(texts.len());
-        
+
         // Разбиваем на батчи
         for batch in texts.chunks(self.config.batch_size) {
             let batch_embeddings = self.process_batch(batch, is_query).await?;
             embeddings.extend(batch_embeddings);
         }
-        
+
         Ok(embeddings)
     }
 
     #[cfg(not(feature = "embeddings"))]
     pub async fn generate_batch(&self, _texts: &[&str], _is_query: bool) -> Result<Vec<Vec<f32>>> {
-        Err(anyhow::anyhow!(
-            "ONNX embeddings feature is not enabled"
-        ))
+        Err(anyhow::anyhow!("ONNX embeddings feature is not enabled"))
     }
 
     /// Обработка одного батча
@@ -308,7 +311,7 @@ impl OnnxEmbeddingService {
             };
 
             let tokens = tokenizer.encode(&prepared_text, max_length)?;
-            
+
             for (j, &id) in tokens.input_ids.iter().enumerate() {
                 all_input_ids[i][j] = id as i64;
                 all_attention_mask[i][j] = tokens.attention_mask[j] as i64;
@@ -319,18 +322,21 @@ impl OnnxEmbeddingService {
         // Создание батчевых тензоров
         let input_ids_array = Array2::from_shape_vec(
             (batch_size, max_length),
-            all_input_ids.into_iter().flatten().collect::<Vec<_>>()
-        ).unwrap();
+            all_input_ids.into_iter().flatten().collect::<Vec<_>>(),
+        )
+        .unwrap();
 
         let attention_mask_array = Array2::from_shape_vec(
             (batch_size, max_length),
-            all_attention_mask.into_iter().flatten().collect::<Vec<_>>()
-        ).unwrap();
+            all_attention_mask.into_iter().flatten().collect::<Vec<_>>(),
+        )
+        .unwrap();
 
         let token_type_ids_array = Array2::from_shape_vec(
             (batch_size, max_length),
-            all_token_type_ids.into_iter().flatten().collect::<Vec<_>>()
-        ).unwrap();
+            all_token_type_ids.into_iter().flatten().collect::<Vec<_>>(),
+        )
+        .unwrap();
 
         // Запуск инференса
         let inputs = vec![
@@ -340,13 +346,13 @@ impl OnnxEmbeddingService {
         ];
 
         let outputs = self.session.run(inputs)?;
-        
+
         // Извлечение эмбеддингов для всего батча
         let last_hidden_state: ort::Value = outputs[0].try_extract_tensor::<f32>()?;
         let attention_mask_slice: ort::Value = outputs[1].try_extract_tensor::<f32>()?;
-        
+
         let mut embeddings = Vec::with_capacity(batch_size);
-        
+
         for i in 0..batch_size {
             // Mean pooling для каждого элемента батча
             let mut sum = vec![0.0f32; self.config.embedding_dim];
@@ -361,7 +367,10 @@ impl OnnxEmbeddingService {
                 }
             }
 
-            let mut embedding = sum.iter().map(|&s| s / count.max(1e-10)).collect::<Vec<_>>();
+            let mut embedding = sum
+                .iter()
+                .map(|&s| s / count.max(1e-10))
+                .collect::<Vec<_>>();
             self.normalize_vector(&mut embedding);
             embeddings.push(embedding);
         }
@@ -386,7 +395,11 @@ impl OnnxEmbeddingService {
         format!(
             "ONNX multilingual-e5-small ({} dims, {})",
             self.config.embedding_dim,
-            if self.config.use_gpu { "GPU (CUDA)" } else { "CPU" }
+            if self.config.use_gpu {
+                "GPU (CUDA)"
+            } else {
+                "CPU"
+            }
         )
     }
 }
@@ -399,14 +412,14 @@ impl Tokenizer {
         let merges_path = path.join("merges.txt");
 
         // Загрузка vocab
-        let vocab_content = std::fs::read_to_string(&vocab_path)
-            .context("Failed to read vocab.json")?;
-        let vocab: HashMap<String, u32> = serde_json::from_str(&vocab_content)
-            .context("Failed to parse vocab.json")?;
+        let vocab_content =
+            std::fs::read_to_string(&vocab_path).context("Failed to read vocab.json")?;
+        let vocab: HashMap<String, u32> =
+            serde_json::from_str(&vocab_content).context("Failed to parse vocab.json")?;
 
         // Загрузка merges
-        let merges_content = std::fs::read_to_string(&merges_path)
-            .context("Failed to read merges.txt")?;
+        let merges_content =
+            std::fs::read_to_string(&merges_path).context("Failed to read merges.txt")?;
         let merges: Vec<(String, String)> = merges_content
             .lines()
             .filter(|line| !line.starts_with("#version"))
@@ -427,7 +440,10 @@ impl Tokenizer {
             ("[CLS]", 101u32),
             ("[SEP]", 102u32),
             ("[MASK]", 103u32),
-        ].iter().map(|(s, &id)| (s.to_string(), id)).collect();
+        ]
+        .iter()
+        .map(|(s, id)| (s.to_string(), *id))
+        .collect();
 
         Ok(Self {
             vocab,
@@ -439,7 +455,7 @@ impl Tokenizer {
     fn encode(&self, text: &str, max_length: usize) -> Result<EncodedInput> {
         // Простая токенизация по словам (в production использовать полный BPE)
         let mut tokens = Vec::new();
-        
+
         // Добавляем [CLS] токен
         tokens.push(*self.special_tokens.get("[CLS]").unwrap_or(&101));
 
@@ -502,17 +518,29 @@ mod tests {
         service.initialize_tokenizer().await.unwrap();
 
         // English
-        let en_emb = service.generate_embedding("Hello world", false).await.unwrap();
+        let en_emb = service
+            .generate_embedding("Hello world", false)
+            .await
+            .unwrap();
         assert_eq!(en_emb.len(), 384);
 
         // Russian
-        let ru_emb = service.generate_embedding("Привет мир", false).await.unwrap();
+        let ru_emb = service
+            .generate_embedding("Привет мир", false)
+            .await
+            .unwrap();
         assert_eq!(ru_emb.len(), 384);
 
         // Cross-lingual similarity
-        let en_query = service.generate_embedding("machine learning", true).await.unwrap();
-        let ru_doc = service.generate_embedding("машинное обучение", false).await.unwrap();
-        
+        let en_query = service
+            .generate_embedding("machine learning", true)
+            .await
+            .unwrap();
+        let ru_doc = service
+            .generate_embedding("машинное обучение", false)
+            .await
+            .unwrap();
+
         let similarity = cosine_similarity(&en_query, &ru_doc);
         assert!(similarity > 0.5, "Cross-lingual similarity should be high");
     }
@@ -521,12 +549,8 @@ mod tests {
     #[ignore]
     async fn test_batch_processing() {
         let service = OnnxEmbeddingService::new().unwrap();
-        
-        let texts = vec![
-            "Hello world",
-            "Привет мир",
-            "你好世界",
-        ];
+
+        let texts = vec!["Hello world", "Привет мир", "你好世界"];
 
         let embeddings = service.generate_batch(&texts, false).await.unwrap();
         assert_eq!(embeddings.len(), 3);
@@ -538,7 +562,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    
+
     let denominator = norm_a * norm_b;
     if denominator < 1e-10 {
         0.0

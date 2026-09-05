@@ -67,6 +67,7 @@ mod hybrid_search_tests {
             transaction: None,
             limit: 20,
             distributed: false,
+            ..Default::default()
         };
 
         // Выполняем гибридный поиск
@@ -126,6 +127,7 @@ mod hybrid_search_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         // Выполняем запрос первый раз
@@ -216,6 +218,7 @@ mod hybrid_search_tests {
             transaction: None,
             limit: 15,
             distributed: false,
+            ..Default::default()
         };
 
         let results = QueryExecutor::execute_hybrid_query(&store, query)
@@ -269,6 +272,7 @@ mod hybrid_search_tests {
             transaction: None,
             limit: 25,
             distributed: false,
+            ..Default::default()
         };
 
         // Измеряем время выполнения гибридного поиска

@@ -1,11 +1,11 @@
 use crate::hybrid_storage::HybridPersistentStore;
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 /// PGWire server for PostgreSQL compatibility
-/// 
+///
 /// This implementation provides basic PostgreSQL wire protocol support
 /// allowing connection from psql and other PostgreSQL clients.
 pub struct PgWireServer {
@@ -59,16 +59,16 @@ async fn handle_connection(
     // Send authentication OK (trust authentication for now)
     let auth_ok = [
         0u8, 0, 0, 0, // Message type (empty for startup)
-        0, 0, 0, 8,   // Length
-        0, 0, 0, 0,   // Authentication OK
+        0, 0, 0, 8, // Length
+        0, 0, 0, 0, // Authentication OK
     ];
     stream.write_all(&auth_ok).await?;
 
     // Send ReadyForQuery
     let ready_msg = [
-        b'Z',           // ReadyForQuery
-        0, 0, 0, 5,     // Length
-        b'I',           // Idle status
+        b'Z', // ReadyForQuery
+        0, 0, 0, 5,    // Length
+        b'I', // Idle status
     ];
     stream.write_all(&ready_msg).await?;
 
@@ -82,7 +82,7 @@ async fn handle_connection(
             Ok(n) => {
                 // Parse and execute query (simplified)
                 let query = String::from_utf8_lossy(&query_buf[..n]);
-                
+
                 if query.contains("SELECT") || query.contains("MATCH") {
                     // Execute TQL/SQL query
                     let result = execute_query(&query, &store).await;
@@ -106,7 +106,7 @@ async fn handle_connection(
 /// Execute a query (simplified implementation)
 async fn execute_query(query: &str, store: &HybridPersistentStore) -> Result<String> {
     let query_upper = query.to_uppercase();
-    
+
     if query_upper.contains("SELECT") && query_upper.contains("FROM NODES") {
         let nodes = store.get_all()?;
         Ok(format!("{} rows", nodes.len()))
@@ -128,41 +128,35 @@ async fn send_query_result(
         Ok(msg) => {
             // Send CommandComplete
             let mut complete_msg = vec![
-                b'C',                   // CommandComplete
-                0, 0, 0, 0,             // Length (filled below)
+                b'C', // CommandComplete
+                0, 0, 0, 0, // Length (filled below)
             ];
             complete_msg.extend_from_slice(msg.as_bytes());
-            complete_msg[1..5].copy_from_slice(&(complete_msg.len() as u32 - 1).to_be_bytes());
+            let len = (complete_msg.len() as u32 - 1).to_be_bytes();
+            complete_msg[1..5].copy_from_slice(&len);
             stream.write_all(&complete_msg).await?;
 
             // Send ReadyForQuery
-            let ready_msg = [
-                b'Z',
-                0, 0, 0, 5,
-                b'I',
-            ];
+            let ready_msg = [b'Z', 0, 0, 0, 5, b'I'];
             stream.write_all(&ready_msg).await?;
         }
         Err(e) => {
             // Send ErrorResponse
             let mut error_msg = vec![
-                b'E',                   // ErrorResponse
-                0, 0, 0, 0,             // Length (filled below)
-                b'S', b'E', b'R', b'R', b'O', b'R', 0, // S:ERROR
-                b'M',                   // M: message
+                b'E', // ErrorResponse
+                0, 0, 0, 0, // Length (filled below)
+                b'S', b'E', b'R', b'R', b'O', b'R', 0,    // S:ERROR
+                b'M', // M: message
             ];
             error_msg.extend_from_slice(e.to_string().as_bytes());
             error_msg.push(0);
             error_msg.push(0); // Terminator
-            error_msg[1..5].copy_from_slice(&(error_msg.len() as u32 - 1).to_be_bytes());
+            let len = (error_msg.len() as u32 - 1).to_be_bytes();
+            error_msg[1..5].copy_from_slice(&len);
             stream.write_all(&error_msg).await?;
 
             // Send ReadyForQuery
-            let ready_msg = [
-                b'Z',
-                0, 0, 0, 5,
-                b'I',
-            ];
+            let ready_msg = [b'Z', 0, 0, 0, 5, b'I'];
             stream.write_all(&ready_msg).await?;
         }
     }

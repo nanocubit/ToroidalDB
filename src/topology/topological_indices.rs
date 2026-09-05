@@ -1,6 +1,6 @@
 //! Модуль для топологических индексов и структур данных
 
-use crate::storage::Node;
+use crate::hybrid_storage::Node;
 use crate::topology::edges::{HomotopyClass, ToroidalLevel};
 use crate::topology::functions::{ricci_curvature, topological_centrality, toroidal_distance};
 use std::collections::{HashMap, HashSet};
@@ -34,6 +34,16 @@ impl HomotopyClassIndex {
     /// Получает узлы с заданным гомотопическим классом
     pub fn get_nodes_by_class(&self, homotopy_class: &HomotopyClass) -> Option<&Vec<u64>> {
         self.classes.get(homotopy_class)
+    }
+
+    /// Получает узлы по строковому имени гомотопического класса
+    /// (например, "Direct", "Nontrivial", "Wrapped([1, 0])")
+    pub fn get_nodes_in_class(&self, class_name: &str) -> Vec<u64> {
+        self.classes
+            .iter()
+            .find(|(class, _)| format!("{:?}", class).eq_ignore_ascii_case(class_name))
+            .map(|(_, nodes)| nodes.clone())
+            .unwrap_or_default()
     }
 
     /// Обновляет гомотопический класс узла
@@ -120,6 +130,14 @@ impl TopologicalFeatureIndex {
             .get_nodes_by_class(homotopy_class)
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Возвращает вектор топологических характеристик узла
+    /// (кривизна Риччи, топологическая центральность)
+    pub fn get_features(&self, node_id: u64) -> Option<Vec<f32>> {
+        let &ricci = self.ricci_curvature_index.get(&node_id)?;
+        let &centrality = self.centrality_index.get(&node_id)?;
+        Some(vec![ricci, centrality])
     }
 }
 

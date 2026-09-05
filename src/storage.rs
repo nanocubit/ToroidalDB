@@ -214,6 +214,25 @@ pub struct Node {
     pub edges: Vec<Edge>,
 }
 
+impl From<Node> for crate::hybrid_storage::Node {
+    fn from(n: Node) -> Self {
+        Self {
+            id: n.id,
+            vector: n.vector,
+            properties: n.properties,
+            edges: n
+                .edges
+                .into_iter()
+                .map(|e| crate::hybrid_storage::Edge {
+                    target_id: e.target_id,
+                    relation_type: e.relation_type,
+                    weight: e.weight,
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PersistentStore {
     pub db: Db,

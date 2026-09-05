@@ -87,6 +87,7 @@ mod comprehensive_hybrid_tests {
             transaction: None,
             limit: 10,
             distributed: false,
+            ..Default::default()
         };
 
         let start_time = std::time::Instant::now();
@@ -168,6 +169,7 @@ mod comprehensive_hybrid_tests {
                 transaction: None,
                 limit: 20,
                 distributed: false,
+                ..Default::default()
             };
 
             let start_time = std::time::Instant::now();
@@ -225,6 +227,7 @@ mod comprehensive_hybrid_tests {
             transaction: None,
             limit: 15,
             distributed: false,
+            ..Default::default()
         };
 
         // Выполняем запрос первый раз
@@ -343,6 +346,7 @@ mod comprehensive_hybrid_tests {
             transaction: None,
             limit: 25,
             distributed: false,
+            ..Default::default()
         };
 
         let start_time = std::time::Instant::now();

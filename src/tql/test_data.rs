@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::json;
+use std::collections::HashMap;
 
 // Тестовые данные для графовых обходов
 pub struct GraphTestData {
@@ -59,19 +59,57 @@ impl GraphTestData {
         ];
 
         let connections = vec![
-            Connection { from_id: 1, to_id: 2, relation_type: "FOLLOWS".to_string(), weight: 0.9 },
-            Connection { from_id: 2, to_id: 3, relation_type: "FOLLOWS".to_string(), weight: 0.8 },
-            Connection { from_id: 1, to_id: 4, relation_type: "FOLLOWS".to_string(), weight: 0.7 },
-            Connection { from_id: 3, to_id: 5, relation_type: "FOLLOWS".to_string(), weight: 0.85 },
-            Connection { from_id: 4, to_id: 5, relation_type: "FOLLOWS".to_string(), weight: 0.75 },
-            Connection { from_id: 1, to_id: 3, relation_type: "WORKS_WITH".to_string(), weight: 0.95 },
-            Connection { from_id: 2, to_id: 4, relation_type: "FRIENDS_WITH".to_string(), weight: 0.88 },
+            Connection {
+                from_id: 1,
+                to_id: 2,
+                relation_type: "FOLLOWS".to_string(),
+                weight: 0.9,
+            },
+            Connection {
+                from_id: 2,
+                to_id: 3,
+                relation_type: "FOLLOWS".to_string(),
+                weight: 0.8,
+            },
+            Connection {
+                from_id: 1,
+                to_id: 4,
+                relation_type: "FOLLOWS".to_string(),
+                weight: 0.7,
+            },
+            Connection {
+                from_id: 3,
+                to_id: 5,
+                relation_type: "FOLLOWS".to_string(),
+                weight: 0.85,
+            },
+            Connection {
+                from_id: 4,
+                to_id: 5,
+                relation_type: "FOLLOWS".to_string(),
+                weight: 0.75,
+            },
+            Connection {
+                from_id: 1,
+                to_id: 3,
+                relation_type: "WORKS_WITH".to_string(),
+                weight: 0.95,
+            },
+            Connection {
+                from_id: 2,
+                to_id: 4,
+                relation_type: "FRIENDS_WITH".to_string(),
+                weight: 0.88,
+            },
         ];
 
         GraphTestData { users, connections }
     }
 
-    pub fn populate_store(&self, store: &crate::storage::PersistentStore) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn populate_store(
+        &self,
+        store: &crate::storage::PersistentStore,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Добавляем пользователей в хранилище
         for user in &self.users {
             let node = crate::storage::Node {
@@ -85,7 +123,12 @@ impl GraphTestData {
 
         // Добавляем связи
         for conn in &self.connections {
-            store.add_edge(conn.from_id, conn.to_id, conn.relation_type.clone(), conn.weight)?;
+            store.add_edge(
+                conn.from_id,
+                conn.to_id,
+                conn.relation_type.clone(),
+                conn.weight,
+            )?;
         }
 
         Ok(())
@@ -102,10 +145,10 @@ mod test {
     async fn test_graph_data_population() {
         let store = Arc::new(PersistentStore::open("./graph_data_test").unwrap());
         let test_data = GraphTestData::new();
-        
+
         // Заполняем хранилище тестовыми данными
         test_data.populate_store(&store).unwrap();
-        
+
         // Проверяем, что все пользователи добавлены
         for user in &test_data.users {
             let retrieved = store.get(user.id).unwrap();
@@ -113,11 +156,11 @@ mod test {
             let node = retrieved.unwrap();
             assert_eq!(node.id, user.id);
         }
-        
+
         // Проверяем, что у первого пользователя есть связи
         let alice_node = store.get(1).unwrap().unwrap();
         assert!(alice_node.edges.len() >= 2); // У Alice должно быть минимум 2 связи
-        
+
         // Удаляем тестовые данные
         std::fs::remove_dir_all("./graph_data_test").ok();
     }

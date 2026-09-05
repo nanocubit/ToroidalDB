@@ -38,15 +38,16 @@ async fn main() {
         }
     });
 
+    let health_store = store.clone();
     let app = Router::new()
         .route(
             "/health",
-            get(|| async {
+            get(move || async move {
                 Json(json!({
                     "status": "healthy",
                     "version": env!("CARGO_PKG_VERSION"),
-                    "storage_type": store.get_storage_type(),
-                    "node_count": store.len().unwrap_or(0)
+                    "storage_type": health_store.get_storage_type(),
+                    "node_count": health_store.len().unwrap_or(0)
                 }))
             }),
         )

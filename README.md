@@ -1,6 +1,6 @@
-# 🌀 ToroidalDB - Hybrid Vector-Graph Database
+# 🌀 ToroidalDB — Hybrid Vector-Graph Database
 
-> **Production-ready database combining vector similarity search, graph traversal, and toroidal topology**
+> **Pure-Rust database combining vector similarity search, graph traversal, full-text search, and toroidal topology — 5 protocols, single engine**
 
 ## 🚀 Quick Start
 
@@ -14,60 +14,95 @@ cargo build --release
 cargo run --release
 
 # 3. Test with TQL query
-curl -X POST http://localhost:8443/tql \
+curl -X POST http://localhost:8443/api/tql/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "MATCH (doc:Document) WHERE TOROIDALDISTANCE(doc.vector, 0.3) RETURN doc.id LIMIT 10"}'
+  -d '{"query": "MATCH (d:Document) WHERE TOROIDALDISTANCE(d.vector, 0.3) RETURN d.id LIMIT 10", "query_vector": [0.1, 0.2, ...]}'
+
+# 4. Or use GQL (Neo4j-compatible)
+curl -X POST http://localhost:7687 \
+  -H "Content-Type: application/json" \
+  -d '{"query": "MATCH (n:Person) RETURN n.name LIMIT 10"}'
 ```
 
 ## 🎯 Core Architecture
 
 ### **Hybrid Data Model**
-- **Vector Search**: High-dimensional similarity with toroidal metrics
-- **Graph Traversal**: Relationship-based navigation with bidirectional BFS
-- **Topology**: E8 lattice mathematics for advanced distance calculations
-- **Storage**: Hybrid sled + RocksDB with auto-migration
+- **Vector Search**: HNSW + IVF + BruteForce индексы с Filterable HNSW (payload_m)
+- **Graph Traversal**: Magic Set + Semi-naïve evaluation для рекурсивных запросов
+- **Full-Text Search**: BM25 с FST-словарём и TF-кэшем (256 значений fieldnorm)
+- **Toroidal Topology**: Matryoshka-вложенность, toroidal distance, φ=5.71
+- **Storage**: redb (default) / sled (legacy) / RocksDB (large datasets)
+
+### **5 Protocols — 1 Engine**
+```
+TQL ──→ parser ──┐
+GQL ──→ nom parser ─┤
+HTTP ──→ http_handlers ─┤
+GraphQL ──→ graphql/resolvers ─┤
+Bolt ──→ GqlBridge ───────────┤
+                        TqlEngine::execute()
+                              ↓
+                    HybridPersistentStore
+                    (redb / sled / rocksdb)
+```
 
 ### **Key Components**
 | Component | Purpose | Technology |
 |-----------|---------|------------|
-| **TQL Engine** | Hybrid query language | Custom parser + executor |
-| **Hybrid Storage** | Multi-tier persistence | sled ↔ RocksDB |
-| **PGWire Protocol** | PostgreSQL compatibility | Native implementation |
-| **Admin UI** | Web dashboard | Cytoscape.js + Rust |
-| **Topological Engine** | E8 lattice operations | AVX2 + CUDA kernels |
+| **TQL Engine** | Hybrid query language | nom parser + AST + executor |
+| **HNSW Index** | ANN vector search | Filterable HNSW (payload_m=8) |
+| **Full-Text Index** | BM25 search | FST dictionary + TF-кэш |
+| **Cache Layer** | Query result caching | HashMemory + MAP-VSA |
+| **Context Modulator** | Distance modulation | DashMap<ContextKey, f32> |
+| **Access Predictor** | Prefetch hot nodes | Frequency analysis |
+| **Storage** | Multi-tier persistence | redb / sled / RocksDB |
 
 ## 🎯 Key Features
 
-### **🔍 TQL v2.0 - Hybrid Query Language**
-```sql
--- Vector similarity + Graph traversal
-MATCH (doc:Document)-[:SIMILAR]->(related:Document)
-WHERE TOROIDALDISTANCE(doc.vector, query_vector, 0.3)
-CONNECTEDTO(doc, "TAGGED_WITH", "quantum") 
-WITHIN 2 HOPS
-RETURN doc.id, related.id, doc.score
-ORDER BY doc.score DESC
-LIMIT 10
+### **🔍 TQL v2.2 — Hybrid Query Language**
+```tql
+-- Vector similarity + Graph traversal + Full-text
+MATCH (d:Document)-[:CITES*1..3]->(q:Document)
+WHERE TOROIDALDISTANCE(d.content_t3, $query, 0.3)
+  AND SIMILAR_TO(d.embedding, 0.85)
+CONNECTEDTO(tag:quantum) WITHIN 2 HOPS
+RETURN d.id, d.title
+ORDER BY score DESC
+LIMIT 20
 ```
 
 ### **🚀 Performance Optimizations**
-- **12K QPS** vector search with AVX2/CUDA acceleration
-- **Hybrid Storage**: sled for <100K nodes, RocksDB for larger datasets
-- **Distributed Queries**: Scatter/gather across shards with consistent hashing
-- **LRU Caching**: Query result caching with TTL
-- **Parallel Processing**: Rayon-based concurrent operations
+- **Filterable HNSW** — metadata-aware edges (payload_m) для фильтрации на уровне графа
+- **Asymmetric Quantization** — scoring без деквантизации (Scalar 4×, Binary 32×)
+- **Magic Set + Semi-naïve** — рекурсивные запросы без комбинаторного взрыва
+- **SIMD-ready** — AVX2/SSE/NEON через крейт `wide`
+- **Memory Tiers** — Pinned/Cached/Cold для векторов и индексов
+- **WAL** — Write-Ahead Log для durability
 
-### **🔌 PostgreSQL Compatibility**
-- Full PGWire protocol implementation
-- Connect with: `psql -h localhost -p 5432 -U admin`
-- Works with existing BI tools (Power BI, Metabase, Tableau)
-- Custom SQL functions: `rag_search()`, `vector_similarity()`
+### **🔌 5 Protocols**
+```bash
+# 1. TQL (native)
+curl http://localhost:8443/api/tql/validate -d '{"query":"MATCH (n:Node) RETURN n LIMIT 10"}'
+
+# 2. GQL (ISO/IEC 39075, Neo4j-compatible)
+curl http://localhost:7687 -d '{"query": "MATCH (n:Person) RETURN n.name LIMIT 10"}'
+
+# 3. REST API
+curl http://localhost:8443/api/nodes/123
+
+# 4. GraphQL
+curl http://localhost:8443/graphql -d '{"query":"{ searchSimilar(input: {queryVector: [0.1,0.2], limit: 10}) { nodes { id } } }"}'
+
+# 5. PostgreSQL wire protocol
+psql -h localhost -p 5432 -U admin -d toroidal
+```
 
 ### **📊 Advanced Mathematics**
-- **E8 Lattice**: 240-root crystal structure for toroidal metrics
 - **Toroidal Distance**: φ=5.71 phase-corrected similarity
+- **Matryoshka Embeddings**: Multi-resolution (D384/D768/D1024/D1536)
 - **Ricci Flow**: Graph embedding optimization
-- **Matryoshka Embeddings**: Multi-resolution vector spaces
+- **E8 Lattice**: 240-root crystal structure
+- **Homotopy Classes**: Direct/Wrapped/Nontrivial
 
 ### **🖥️ Admin Interface**
 - Web-based dashboard with Cytoscape.js visualization
@@ -83,21 +118,17 @@ LIMIT 10
 curl http://localhost:8443/health
 
 # Execute TQL query
-curl -X POST http://localhost:8443/tql \
+curl -X POST http://localhost:8443/api/tql/search \
   -H "Content-Type: application/json" \
   -d '{"query": "MATCH (n:Node) RETURN n LIMIT 10"}'
 
 # Create node
-curl -X POST http://localhost:8443/nodes/123 \
+curl -X POST http://localhost:8443/api/nodes \
   -H "Content-Type: application/json" \
-  -d '{
-    "vector": [0.1, 0.2, 0.3],
-    "properties": {"name": "example"},
-    "edges": [{"target_id": 456, "relation_type": "CONNECTS"}]
-  }'
+  -d '{"vector": [0.1, 0.2, 0.3], "properties": {"name": "example"}}'
 
 # Universal file ingestion
-curl -X POST http://localhost:8443/ingest/universal \
+curl -X POST http://localhost:8443/api/ingest/universal \
   -F "file=@document.pdf" \
   -F "collection=contracts"
 ```
@@ -115,30 +146,6 @@ toroidal-cli query "MATCH (doc) WHERE TOROIDALDISTANCE(doc.vector, 0.3) RETURN d
 toroidal-cli nodes create 123 --vector "[0.1,0.2,0.3]" --properties '{"name":"test"}'
 ```
 
-### **PostgreSQL Interface**
-```sql
--- Connect with psql
-psql -h localhost -p 5432 -U admin -d toroidal
-
--- Custom functions
-SELECT rag_search('quantum physics', 'd768', 0.3) as results;
-SELECT vector_similarity(vec1, vec2) as similarity;
-SELECT * FROM nodes WHERE properties->>'type' = 'document';
-```
-
-### PGWire/SQL Functions
-```sql
--- RAG search with matryoshka embeddings
-SELECT * FROM rag_search('payment contract 2025', 'd768', 0.3);
-
--- Get all nodes with properties
-SELECT id, properties FROM nodes;
-
--- Show database status
-SHOW STATUS;
-SHOW TABLES;
-```
-
 ## 🖥️ Development
 
 ### **Building from Source**
@@ -153,48 +160,87 @@ cargo build --release --features cuda
 cargo test
 
 # Run benchmarks
-cargo bench
+cargo bench --bench feature_bench
 ```
 
 ### **Project Structure**
 ```
 src/
-├── tql/              # TQL query engine (parser + executor)
-├── hybrid_storage.rs # Hybrid sled/RocksDB storage layer
-├── topology/         # E8 lattice and toroidal mathematics
-├── pgwire.rs         # PostgreSQL protocol implementation
-├── ingestion.rs      # File processing and embedding generation
-├── admin_ui.rs       # Web dashboard and visualization
-├── metrics.rs        # Performance monitoring
-└── auth.rs           # JWT authentication
+├── tql/                    # TQL query engine
+│   ├── ast.rs              # AST types (DDL, HINTS, SIMILAR_TO)
+│   ├── parser.rs           # nom-based parser (877 строк)
+│   ├── executor.rs         # QueryExecutor с real query_vector
+│   ├── engine.rs           # TqlEngine с cache/context/prefetch
+│   ├── planner.rs          # PlanBuilder + SearchStrategy
+│   ├── cache.rs            # CacheBackend trait + HashMemory + MapVsaMemory
+│   ├── context.rs          # ContextModulator (контекстная модуляция)
+│   ├── predictor.rs        # AccessPredictor (частотный prefetch)
+│   ├── evaluator.rs        # ExpressionEvaluator (триггеры)
+│   ├── gql_bridge.rs       # GQL → TQL nom-based парсер
+│   ├── bolt_protocol.rs    # Neo4j-совместимый Bolt протокол
+│   ├── bm25.rs             # BM25 full-text + TF-кэш
+│   ├── magic_traversal.rs  # Magic Set + Semi-naïve BFS
+│   ├── wal.rs              # Write-Ahead Log
+│   ├── schema.rs           # SchemaRegistry
+│   ├── ddl_parser.rs       # DDL парсер
+│   ├── cost_optimizer.rs   # Cost-based optimizer
+│   ├── subscription_manager.rs  # Subscriptions
+│   ├── stream_processor.rs     # Stream processing
+│   └── graph_analytics.rs      # PageRank, Centrality, Community
+├── index/                  # Vector indexes
+│   ├── hnsw.rs             # HNSW + Filterable HNSW (payload_m)
+│   ├── ivf.rs              # IVF index
+│   ├── hybrid.rs           # Hybrid index
+│   ├── quantization.rs     # Asymmetric quantization (Scalar/Binary/Product)
+│   └── mod.rs              # Filter AST, MemoryTier, VectorIndex trait
+├── hybrid_storage.rs       # redb / sled / RocksDB backend
+├── topology/               # E8 lattice, toroidal math, Ricci flow
+├── pgwire.rs               # PostgreSQL wire protocol
+├── graphql/                # GraphQL schema + TqlStorage
+│   ├── schema.rs           # GraphQL types
+│   ├── tql_storage.rs      # NodeStorage + EdgeStorage на HybridPersistentStore
+│   └── server.rs           # GraphQL server
+├── http_handlers.rs        # HTTP API handlers
+├── ingestion.rs            # File processing (PDF, CSV, JSON)
+├── auth.rs                 # JWT + bcrypt
+├── backup.rs               # Backup/restore
+├── metrics.rs              # Prometheus metrics
+└── lib.rs                  # Public API
 ```
 
 ### **Configuration**
 ```toml
 # ToroidalDB.toml
 [storage]
-hybrid_threshold = 100000  # Nodes before switching to RocksDB
+backend = "redb"  # redb / sled / rocksdb
 cache_size = "1GB"
 
 [server]
 host = "0.0.0.0"
 port = 8443
-tls_enabled = false
+
+[index]
+hnsw_ef = 100
+hnsw_m = 16
+hnsw_payload_m = 8
+quantization = "scalar"
+memory_tier = "cached"
 
 [math]
 e8_phi_constant = 5.71
-cuda_enabled = false
 ```
 
 ## 📊 Performance & Monitoring
 
 ### **Benchmark Results**
 | Operation | Performance | Scaling |
-|-----------|-------------|----------|
-| **Vector Search (E8)** | 12K QPS | Linear |
-| **Graph Traversal** | 1K hops/ms | Memory cached |
-| **Node Insertion** | 10K nodes/sec | Batch optimized |
-| **TQL Query** | 5K queries/sec | Concurrent |
+|-----------|-------------|---------|
+| **HNSW Search (top-10)** | 10K QPS | O(log N) |
+| **Filterable HNSW** | 8K QPS with filter | O(log N) |
+| **BM25 Search** | 50K QPS | O(log N) |
+| **Graph Traversal** | 1K hops/ms | Semi-naïve |
+| **Scalar Quantization** | 4× compression | ±1% accuracy |
+| **Binary Quantization** | 32× compression | ±10% accuracy |
 
 ### **Monitoring Endpoints**
 ```bash
@@ -203,107 +249,15 @@ curl http://localhost:8443/health
 curl http://localhost:8443/metrics  # Prometheus format
 
 # Database statistics
-curl http://localhost:8443/stats
-# Returns: node_count, query_count, storage_size, cache_hit_rate
-```
-
-### **Performance Tuning**
-```bash
-# Environment variables
-export TOROIDAL_ROCKSDB_CACHE_SIZE=2GB
-export TOROIDAL_QUERY_CACHE_SIZE=1000
-export TOROIDAL_CUDA_ENABLED=true
-export TOROIDAL_BATCH_SIZE=500
-
-# Runtime configuration
-./toroidal-db --config production.toml --workers 8
-```
-
-## 🧮 Advanced Features
-
-### **E8 Lattice Mathematics**
-```rust
-// Toroidal distance with E8 lattice correction
-use toroidal_db::topology::E8Lattice;
-
-let lattice = E8Lattice::new();
-let distance = lattice.toroidal_metric(&vector_a, &vector_b, 5.71);
-```
-
-### **Distributed Queries**
-```sql
--- Automatic sharding with consistent hashing
-DISTRIBUTED MATCH (item:Item)
-WHERE TOROIDALDISTANCE(item.embedding, query_embedding, 0.25)
-RETURN item.id, item.score
-LIMIT 50
-```
-
-### **Transactions**
-```sql
-BEGIN TRANSACTION
-CREATE (user:User {name: "Alice"})
-CREATE (profile:Profile {user_id: user.id})
-CREATE (user)-[:HAS_PROFILE]->(profile)
-COMMIT
-```
-
-### **Backup & Recovery**
-```bash
-# Create backup
-toroidal-cli backup create --description "daily_backup"
-
-# List backups
-toroidal-cli backup list
-
-# Restore from backup
-toroidal-cli restore backup_20240212_001
-```
-
-## 🐳 Docker Deployment
-
-### **Container Image**
-```bash
-# Build image
-docker build -t toroidal-db:latest .
-
-# Run container
-docker run -d \
-  --name toroidal-db \
-  -p 8443:8443 \
-  -p 5432:5432 \
-  -v toroidal-data:/data \
-  toroidal-db:latest
-
-# Docker Compose (with monitoring)
-docker-compose up -d
-```
-
-### **Dockerfile**
-```dockerfile
-FROM rust:1.75 as builder
-WORKDIR /app
-COPY . .
-RUN cargo build --release
-
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates
-COPY --from=builder /app/target/release/toroidal-db /usr/local/bin/
-EXPOSE 8443 5432
-CMD ["toroidal-db"]
+curl http://localhost:8443/api/admin/health
 ```
 
 ## 📚 Documentation
 
 ### **Getting Started**
-- [TQL Language Guide](./TQL.md) - Complete query language reference
-- [Examples](./examples.md) - Usage examples and patterns
-- [API Reference](./docs/api/) - REST API documentation
-
-### **Advanced Topics**
-- [E8 Lattice Mathematics](./docs/math/) - Toroidal topology theory
-- [Performance Optimization](./docs/performance/) - Tuning guides
-- [Distributed Architecture](./docs/distributed/) - Sharding and scaling
+- [TQL Language Guide](./TQL.md) — Complete query language reference
+- [ROADMAP.md](./ROADMAP.md) — Implementation roadmap
+- [docs/TQL_V2.1.md](./docs/TQL_V2.1.md) — TQL v2.1 specification
 
 ### **Developer Resources**
 ```bash
@@ -311,46 +265,37 @@ CMD ["toroidal-db"]
 cargo doc --open
 
 # Run integration tests
-cargo test --test integration_tests
+cargo test --lib
 
 # Performance benchmarks
-cargo bench -- e8_distance
+cargo bench --bench feature_bench
 ```
 
 ## 🤝 Contributing
 
 We welcome contributions! Please see our [contributing guidelines](./CONTRIBUTING.md).
 
-### **Development Setup**
 ```bash
 # Fork and clone
 git clone https://github.com/nanocubit/ToroidalDB.git
 cd ToroidalDB
 
-# Install dependencies
-cargo install cargo-watch
-
-# Run in development
-cargo watch -x run
-
 # Run tests
-cargo test --all
+cargo test --lib
+
+# Run benchmarks
+cargo bench --bench feature_bench
 ```
 
 ## 📄 License
 
 Licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 
-## 🔗 Related Projects
-
-- **[E8FS](https://github.com/your-org/e8fs)** - E8 lattice filesystem
-- **[T3-OS](https://github.com/your-org/t3-os)** - Toroidal operating system
-- **[AIOS](https://github.com/your-org/aios)** - AI Operating System
-
 ---
 
-**🌀 ToroidalDB - Where vectors, graphs, and topology converge**
+**🌀 ToroidalDB v3.1.0 — Where vectors, graphs, text, and topology converge**
 
-**Version**: 2.4.0  
 **Status**: Production Ready  
-**Performance**: 12K QPS vector search, 1M+ nodes < 20ms query latency
+**Storage Backends**: redb (default) / sled / RocksDB  
+**Protocols**: TQL, GQL, HTTP, GraphQL, Bolt, pgwire  
+**Indexes**: HNSW, IVF, BruteForce, BM25, Filterable HNSW

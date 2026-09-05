@@ -25,6 +25,16 @@ pub struct AppState {
     pub backup_manager: Arc<tql::BackupManager>,
 }
 
+impl AppState {
+    pub fn new(store: Arc<HybridPersistentStore>) -> Self {
+        Self {
+            store,
+            auth_service: Arc::new(auth::AuthService::new("toroidal-secret-key".to_string())),
+            backup_manager: Arc::new(tql::BackupManager::new("./backups", 30)),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct InsertNode {
     pub vector: Vec<f32>,
@@ -282,18 +292,19 @@ pub async fn search_nodes(
             max_depth,
         } => {
             // Implement proper BFS graph search
-            match Self::graph_search_bfs(&state.store, start_id, max_depth).await {
-                Ok(nodes_info) => {
-                    Ok(Json(ApiResponse {
-                        success: true,
-                        message: Some(format!("BFS search completed, found {} nodes", nodes_info.len())),
-                        data: Some(json!({
-                            "start_id": start_id,
-                            "nodes": nodes_info,
-                            "total": nodes_info.len()
-                        })),
-                    }))
-                }
+            match graph_search_bfs(&state.store, start_id, max_depth as u32).await {
+                Ok(nodes_info) => Ok(Json(ApiResponse {
+                    success: true,
+                    message: Some(format!(
+                        "BFS search completed, found {} nodes",
+                        nodes_info.len()
+                    )),
+                    data: Some(json!({
+                        "start_id": start_id,
+                        "nodes": nodes_info,
+                        "total": nodes_info.len()
+                    })),
+                })),
                 Err(e) => Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({ "error": e })),
@@ -310,15 +321,15 @@ async fn graph_search_bfs(
     max_depth: u32,
 ) -> Result<Vec<Value>, String> {
     use std::collections::{HashSet, VecDeque};
-    
+
     let mut visited: HashSet<u64> = HashSet::new();
     let mut queue: VecDeque<(u64, u32)> = VecDeque::new();
     let mut results: Vec<Value> = Vec::new();
-    
+
     // Start from the given node
     queue.push_back((start_id, 0));
     visited.insert(start_id);
-    
+
     // Add the start node to results
     if let Ok(Some(node)) = store.get(start_id) {
         results.push(json!({
@@ -327,22 +338,22 @@ async fn graph_search_bfs(
             "depth": 0
         }));
     }
-    
+
     while let Some((current_id, depth)) = queue.pop_front() {
         if depth >= max_depth {
             continue;
         }
-        
+
         // Get neighbors
         let neighbors = store
             .get_neighbors(current_id)
             .map_err(|e| format!("Failed to get neighbors: {}", e))?;
-        
+
         for neighbor in neighbors {
             if !visited.contains(&neighbor.id) {
                 visited.insert(neighbor.id);
                 queue.push_back((neighbor.id, depth + 1));
-                
+
                 results.push(json!({
                     "id": neighbor.id,
                     "properties": neighbor.properties,
@@ -351,7 +362,7 @@ async fn graph_search_bfs(
             }
         }
     }
-    
+
     Ok(results)
 }
 
@@ -398,13 +409,17 @@ pub async fn create_inter_toroidal_edge(
         payload.target_id,
         target_level,
         payload.relation_type.clone(),
-        payload.properties.clone().unwrap_or_else(|| json!({})),
+        payload.properties.clone(),
     ) {
         Ok(edge) => Ok(Json(InterToroidalEdgeResponse {
             success: true,
             message: Some(format!(
                 "Inter-toroidal edge created: {}({}) --[{}]→ {}({})",
-                payload.source_id, payload.source_level, payload.relation_type, payload.target_id, payload.target_level
+                payload.source_id,
+                payload.source_level,
+                payload.relation_type,
+                payload.target_id,
+                payload.target_level
             )),
             edge: Some(edge),
         })),
@@ -524,21 +539,19 @@ pub async fn ricci_flow_optimization(
 
     // Применяем поток Риччи
     match ricci_flow::optimize_embedding(&nodes, target_dim, iterations) {
-        Ok(optimized_count) => {
-            Ok(Json(ApiResponse {
-                success: true,
-                message: Some(format!(
-                    "Ricci flow optimization completed: {} nodes optimized in {} iterations",
-                    optimized_count, iterations
-                )),
-                data: Some(json!({
-                    "iterations": iterations,
-                    "target_dimension": target_dim.size(),
-                    "optimized_nodes": optimized_count,
-                    "total_nodes": nodes.len(),
-                })),
-            }))
-        }
+        Ok(optimized_count) => Ok(Json(ApiResponse {
+            success: true,
+            message: Some(format!(
+                "Ricci flow optimization completed: {} nodes optimized in {} iterations",
+                optimized_count, iterations
+            )),
+            data: Some(json!({
+                "iterations": iterations,
+                "target_dimension": target_dim.size(),
+                "optimized_nodes": optimized_count,
+                "total_nodes": nodes.len(),
+            })),
+        })),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e })),
@@ -896,16 +909,11 @@ pub async fn schedule_backup_handler(
 }
 
 // Middleware для аутентификации и авторизации
-pub async fn auth_middleware(req: Request<axum::body::Body>, next: Next) -> Response {
+pub async fn auth_middleware(mut req: Request<axum::body::Body>, next: Next) -> Response {
     // Skip auth for certain paths
     let path = req.uri().path();
-    let skip_auth_paths = [
-        "/health",
-        "/login",
-        "/register",
-        "/favicon.ico",
-    ];
-    
+    let skip_auth_paths = ["/health", "/login", "/register", "/favicon.ico"];
+
     if skip_auth_paths.contains(&path) {
         return next.run(req).await;
     }
@@ -938,7 +946,7 @@ pub async fn auth_middleware(req: Request<axum::body::Body>, next: Next) -> Resp
 
 // Alternative middleware that enforces authentication
 pub async fn require_auth_middleware(
-    req: Request<axum::body::Body>,
+    mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let auth_header = req
