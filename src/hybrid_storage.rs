@@ -15,12 +15,301 @@ use std::sync::{
     Arc, RwLock,
 };
 use std::time::SystemTime;
-use toroidal_storage::{BatchOp, Snapshot, Storage, StorageFactory};
+use toroidal_store::ToroidalStore;
 
-#[cfg(feature = "fjall-storage")]
-use toroidal_storage::FjallFactory;
-#[cfg(feature = "toroidal-store-backend")]
-use toroidal_storage::ToroidalStoreFactory;
+// ---------------------------------------------------------------------------
+// Backend-neutral storage contract (previously toroidal-storage crate)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BatchOp {
+    Put { key: Vec<u8>, value: Vec<u8> },
+    Delete { key: Vec<u8> },
+}
+
+pub trait Storage: Send + Sync {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<()>;
+    fn delete(&self, key: &[u8]) -> Result<()>;
+    fn batch(&self, operations: &[BatchOp]) -> Result<()>;
+    fn scan(
+        &self,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>>;
+    fn flush(&self) -> Result<()>;
+    fn checkpoint(&self) -> Result<()> {
+        self.flush()
+    }
+    fn compact(&self) -> Result<()> {
+        Ok(())
+    }
+    fn snapshot(&self) -> Result<Box<dyn Snapshot>>;
+}
+
+pub trait Snapshot: Send + Sync {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn scan(
+        &self,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>>;
+}
+
+pub trait StorageFactory: Send + Sync {
+    fn open(&self, path: &Path) -> Result<Box<dyn Storage>>;
+    fn name(&self) -> &'static str;
+}
+
+// ---------------------------------------------------------------------------
+// ToroidalStore backend
+// ---------------------------------------------------------------------------
+
+pub struct ToroidalBackend {
+    store: Arc<ToroidalStore>,
+}
+
+impl ToroidalBackend {
+    pub fn open(path: &Path) -> Result<Self> {
+        let store = ToroidalStore::open(path)
+            .map_err(|e| anyhow::anyhow!("ToroidalStore open: {}", e))?;
+        Ok(Self { store: Arc::new(store) })
+    }
+}
+
+impl Storage for ToroidalBackend {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.store.get(key))
+    }
+
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.store
+            .put(key.to_vec(), value.to_vec())
+            .map_err(|e| anyhow::anyhow!("put: {}", e))
+    }
+
+    fn delete(&self, key: &[u8]) -> Result<()> {
+        self.store
+            .delete(key)
+            .map_err(|e| anyhow::anyhow!("delete: {}", e))
+    }
+
+    fn batch(&self, operations: &[BatchOp]) -> Result<()> {
+        let ops: Vec<toroidal_store::WalFrameKind> = operations
+            .iter()
+            .map(|op| match op {
+                BatchOp::Put { key, value } => toroidal_store::WalFrameKind::Put {
+                    key: key.clone(),
+                    value: value.clone(),
+                },
+                BatchOp::Delete { key } => toroidal_store::WalFrameKind::Delete { key: key.clone() },
+            })
+            .collect();
+        self.store
+            .batch(&ops)
+            .map_err(|e| anyhow::anyhow!("batch: {}", e))
+    }
+
+    fn scan(
+        &self,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>> {
+        if let (Some(s), Some(e)) = (start, end) {
+            if s > e {
+                return Err(anyhow::anyhow!("invalid scan range"));
+            }
+        }
+        let items = self.store.scan(start, end);
+        Ok(Box::new(items.into_iter().map(Ok)))
+    }
+
+    fn flush(&self) -> Result<()> {
+        self.store
+            .checkpoint()
+            .map_err(|e| anyhow::anyhow!("flush: {}", e))?;
+        Ok(())
+    }
+
+    fn checkpoint(&self) -> Result<()> {
+        self.store
+            .checkpoint()
+            .map_err(|e| anyhow::anyhow!("checkpoint: {}", e))?;
+        Ok(())
+    }
+
+    fn compact(&self) -> Result<()> {
+        self.store
+            .compact()
+            .map_err(|e| anyhow::anyhow!("compact: {}", e))?;
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Result<Box<dyn Snapshot>> {
+        let snap = self.store.snapshot();
+        Ok(Box::new(ToroidalSnapshot {
+            store: self.store.clone(),
+            snapshot: snap,
+        }))
+    }
+}
+
+pub struct ToroidalSnapshot {
+    store: Arc<ToroidalStore>,
+    snapshot: toroidal_store::Snapshot,
+}
+
+impl Snapshot for ToroidalSnapshot {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.store
+            .get_at(&self.snapshot, key)
+            .map_err(|e| anyhow::anyhow!("snapshot get: {}", e))
+    }
+
+    fn scan(
+        &self,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>> {
+        if let (Some(s), Some(e)) = (start, end) {
+            if s > e {
+                return Err(anyhow::anyhow!("invalid scan range"));
+            }
+        }
+        let items = self
+            .store
+            .scan_at(&self.snapshot, start, end)
+            .map_err(|e| anyhow::anyhow!("snapshot scan: {}", e))?;
+        Ok(Box::new(items.into_iter().map(Ok)))
+    }
+}
+
+pub struct ToroidalStoreFactory;
+
+impl StorageFactory for ToroidalStoreFactory {
+    fn open(&self, path: &Path) -> Result<Box<dyn Storage>> {
+        Ok(Box::new(ToroidalBackend::open(path)?))
+    }
+
+    fn name(&self) -> &'static str {
+        "toroidal-store"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// In-memory backend (fallback for tests)
+// ---------------------------------------------------------------------------
+
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+
+struct MemInner {
+    data: BTreeMap<Vec<u8>, Vec<u8>>,
+}
+
+pub struct MemoryBackend {
+    inner: Arc<Mutex<MemInner>>,
+}
+
+impl MemoryBackend {
+    pub fn open() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MemInner {
+                data: BTreeMap::new(),
+            })),
+        }
+    }
+}
+
+impl Storage for MemoryBackend {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.inner.lock().unwrap().data.get(key).cloned())
+    }
+
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.inner.lock().unwrap().data.insert(key.to_vec(), value.to_vec());
+        Ok(())
+    }
+
+    fn delete(&self, key: &[u8]) -> Result<()> {
+        self.inner.lock().unwrap().data.remove(key);
+        Ok(())
+    }
+
+    fn batch(&self, operations: &[BatchOp]) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        for op in operations {
+            match op {
+                BatchOp::Put { key, value } => { inner.data.insert(key.clone(), value.clone()); }
+                BatchOp::Delete { key } => { inner.data.remove(key); }
+            }
+        }
+        Ok(())
+    }
+
+    fn scan(
+        &self,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>> {
+        let inner = self.inner.lock().unwrap();
+        let items: Vec<_> = match (start, end) {
+            (Some(s), Some(e)) => inner.data.range(s.to_vec()..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (Some(s), None) => inner.data.range(s.to_vec()..).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (None, Some(e)) => inner.data.range(..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (None, None) => inner.data.iter().map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+        };
+        Ok(Box::new(items.into_iter()))
+    }
+
+    fn flush(&self) -> Result<()> { Ok(()) }
+
+    fn snapshot(&self) -> Result<Box<dyn Snapshot>> {
+        let inner = self.inner.lock().unwrap();
+        let data = inner.data.clone();
+        Ok(Box::new(MemSnapshot { data }))
+    }
+}
+
+struct MemSnapshot {
+    data: BTreeMap<Vec<u8>, Vec<u8>>,
+}
+
+impl Snapshot for MemSnapshot {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.data.get(key).cloned())
+    }
+
+    fn scan(
+        &self,
+        start: Option<&[u8]>,
+        end: Option<&[u8]>,
+    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>> {
+        let items: Vec<_> = match (start, end) {
+            (Some(s), Some(e)) => self.data.range(s.to_vec()..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (Some(s), None) => self.data.range(s.to_vec()..).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (None, Some(e)) => self.data.range(..e.to_vec()).map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+            (None, None) => self.data.iter().map(|(k, v)| Ok((k.clone(), v.clone()))).collect(),
+        };
+        Ok(Box::new(items.into_iter()))
+    }
+}
+
+pub struct MemoryFactory;
+
+impl StorageFactory for MemoryFactory {
+    fn open(&self, _path: &Path) -> Result<Box<dyn Storage>> {
+        Ok(Box::new(MemoryBackend::open()))
+    }
+
+    fn name(&self) -> &'static str {
+        "memory"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HybridPersistentStore (unchanged public API)
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Edge {
@@ -155,13 +444,7 @@ fn edge_key(from: u64, to: u64) -> Vec<u8> {
 impl HybridPersistentStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        #[cfg(feature = "toroidal-store-backend")]
         let factory = ToroidalStoreFactory;
-        #[cfg(all(not(feature = "toroidal-store-backend"), feature = "fjall-storage"))]
-        let factory = FjallFactory;
-        #[cfg(not(any(feature = "toroidal-store-backend", feature = "fjall-storage")))]
-        let factory = toroidal_storage::MemoryFactory;
-
         let storage = factory.open(path)?;
         let node_count = {
             let snapshot = storage.snapshot()?;
@@ -347,13 +630,7 @@ impl HybridPersistentStore {
         self.hybrid_query_cache.clear();
     }
     pub fn get_storage_type(&self) -> &'static str {
-        if cfg!(feature = "toroidal-store-backend") {
-            "toroidal-store"
-        } else if cfg!(feature = "fjall-storage") {
-            "fjall"
-        } else {
-            "memory"
-        }
+        "toroidal-store"
     }
 
     /// Durability checkpoint: freeze then flush all buffered writes.
@@ -370,13 +647,13 @@ impl HybridPersistentStore {
 
     /// Returns a point-in-time snapshot of the storage backend.
     /// Use `get_at` for consistent reads across multiple keys.
-    pub fn snapshot(&self) -> Result<Box<dyn toroidal_storage::Snapshot>> {
+    pub fn snapshot(&self) -> Result<Box<dyn Snapshot>> {
         self.storage.snapshot().context("snapshot failed")
     }
 
     /// Read a node at a specific snapshot.  Returns `None` if the node
     /// did not exist at that point in time, without visible cache effects.
-    pub fn get_at(&self, snap: &dyn toroidal_storage::Snapshot, id: u64) -> Result<Option<Node>> {
+    pub fn get_at(&self, snap: &dyn Snapshot, id: u64) -> Result<Option<Node>> {
         let bytes = snap.get(&node_key(id)).context("get_at failed")?;
         match bytes {
             Some(b) => {

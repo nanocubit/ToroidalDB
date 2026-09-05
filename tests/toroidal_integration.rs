@@ -100,11 +100,7 @@ fn snapshot_stability() {
 #[test]
 fn storage_type() {
     let (_dir, store) = store();
-    // With default features, the backend is "toroidal-store".
-    #[cfg(feature = "toroidal-store-backend")]
     assert_eq!(store.get_storage_type(), "toroidal-store");
-    #[cfg(not(feature = "toroidal-store-backend"))]
-    assert_eq!(store.get_storage_type(), "memory");
 }
 
 #[test]

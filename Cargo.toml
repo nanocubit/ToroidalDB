@@ -23,7 +23,7 @@ bincode = "1.3.3"
 
 # Storage
 sled = "0.34.7"
-toroidal-storage = { path = "../TOR/toroidal-storage-v0.2" }
+toroidal-store = { path = "crates/toroidal-store" }
 rocksdb = { version = "0.22", optional = true }
 
 # Concurrency & parallelism
@@ -83,7 +83,6 @@ pgwire = { version = "0.28", optional = true }
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.15"
-toroidal-store = { path = "../TOR/toroidal-storage" }
 
 [lib]
 name = "toroidal_db"
@@ -114,13 +113,12 @@ name = "feature_bench"
 harness = false
 
 [features]
-default = ["pgwire", "toroidal-store-backend"]
+default = ["pgwire"]
 cuda = ["ort/cuda"]
 pgwire = ["dep:pgwire"]
 avx2 = ["wide"]
 avx512 = ["wide"]
 rocksdb-storage = ["dep:rocksdb"]
-toroidal-store-backend = ["toroidal-storage/toroidal-store-impl"]
 
 # Embedding models support
 embeddings = ["ort", "tokenizers", "num_cpus"]  # ONNX Runtime + HuggingFace tokenizers
