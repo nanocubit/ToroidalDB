@@ -113,42 +113,49 @@ Compaction
 | checkpoint_crash_after_manifest_sync | AfterManifestSync | PASS |
 | checkpoint_crash_before_wal_truncate | BeforeWalTruncate | PASS |
 | manifest_segment_existence_invariant | 4 compaction points | PASS |
+| compact_manifest_never_references_missing_files | 5 compaction points, e2e через ToroidalStore::compact(), manifest.live_segments() ⊆ физически существующих файлов | PASS |
+| compact_success_removes_old_segments_from_manifest_and_disk | успешный compact, manifest=1 merged segment, old-файлов нет | PASS |
 
 Все тесты прошли 5+ прогонов — стабильно, без sleep-based race (детерминированные barrier/fault injection).
 
 ## 6. SIGKILL Evidence
 
-In-process crash (drop without close) используется в checkpoint/compaction matrix — моделирует SIGKILL: WAL не закрыт, buffered data считается потерянной без replay.
-
 | Process model | Crash point | Recovery | lost | corrupt |
 |---|---|---|---|---|
 | in-process drop | AfterCompactionOutput | reopen OK | 0 | 0 |
-| in-process drop | AfterCompactionManifestBatch | reopen OK | 0 | 0 |
-| in-process drop | AfterOldFileDelete | reopen OK | 0 | 0 |
+| in-process drop | CompactionAfterManifestBatch | reopen OK | 0 | 0 |
+| in-process drop | CompactionAfterOldFileDelete | reopen OK | 0 | 0 |
 | in-process drop | checkpoint faults x3 | reopen OK | 0 | 0 |
+| real SIGKILL child process | compaction (100 keys, multiple segments) | reopen OK | 0 | 0 |
 | Phase 12.4 runner (real SIGKILL) | group=64, 757 acked | PASS | 0 | 0 |
+
+SIGKILL compaction test: child process creates N segments, writes READY, forces compaction → parent SIGKILLs → reopen → all 100 keys recovered (found=101, lost=0).
 
 ## 7. Regression
 
 ```
-cargo test (crate, 146 tests incl. 9 new):  PASS
-cargo test (integration 13):                 PASS (ToroidalDB root)
-cargo clippy:                                 (PASS on changed files; pre-existing warnings unchanged)
-cargo fmt --all -- --check:                  PASS
-Phase 12.4 durability (SIGKILL runner):      PASS (lost=0 corrupt=0 batch_lost=0)
+cargo test (crate, 173 tests incl. 11 12.5A + 25 12.5B):  PASS
+cargo test (integration 13):                              PASS (ToroidalDB root)
+cargo clippy (crates/toroidal-store):                     PASS (0 errors)
+cargo clippy (workspace):                                 pre-existing, not regressed
+cargo fmt --all -- --check:                               PASS
+Phase 12.4 durability (SIGKILL runner):                   PASS (lost=0 corrupt=0 batch_lost=0)
 ```
 
 ## 8. Deferred P1/P2
 
-- snapshot linearization (retention/floor races) — Phase 13+
-- empty value encoding (val_len=0 currently means tombstone)
-- malformed segment parser hardening
+Исправлены в Phase 12.5B (commit `4f5a324`, закоммичен в main):
+- snapshot linearization (P1-1)
+- empty value encoding (P1-2)
+- segment parser hardening (P1-3)
+- manifest corrupt suffix truncation (P2)
+
+Остаются:
 - HybridPersistentStore add_edge atomicity
 - concurrent insert / node_count consistency
 - query cache invalidation
 - auth middleware/secrets
 - backup security/semantics
-- manifest corrupt suffix full validation
 - CI coverage for process-level crash matrix
 - README drift
 
