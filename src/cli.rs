@@ -7,7 +7,7 @@ use std::fs;
 #[command(about = "CLI для взаимодействия с ToroidalDB", long_about = None)]
 struct Cli {
     #[arg(short, long, default_value = "https://localhost:8443")]
-    /// Адрес сервера ToroidalDB
+    /// Адрес сервера `ToroidalDB`
     host: String,
 
     #[arg(short, long)]
@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Устанавливаем токен аутентификации
     let auth_header = if let Some(token) = &cli.token {
-        format!("Bearer {}", token)
+        format!("Bearer {token}")
     } else {
         // Попробуем получить токен из переменной окружения
         std::env::var("TOROIDAL_TOKEN").unwrap_or_else(|_| "Bearer admin-token-xyz".to_string())
@@ -148,10 +148,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get_metrics(&cli.host).await?;
         }
         Commands::Nodes(nodes_args) => {
-            handle_nodes_command(&cli.host, &auth_header, &nodes_args).await?;
+            handle_nodes_command(&cli.host, &auth_header, nodes_args).await?;
         }
         Commands::Transaction(transaction_args) => {
-            handle_transaction_command(&cli.host, &auth_header, &transaction_args).await?;
+            handle_transaction_command(&cli.host, &auth_header, transaction_args).await?;
         }
     }
 
@@ -166,7 +166,7 @@ async fn execute_query(
     let client = reqwest::Client::new();
 
     let response = client
-        .post(&format!("{}/tql", host))
+        .post(&format!("{host}/tql"))
         .header("Authorization", auth_header)
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({
@@ -179,9 +179,9 @@ async fn execute_query(
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка выполнения запроса: {}", body);
+        eprintln!("❌ Ошибка выполнения запроса: {body}");
     }
 
     Ok(())
@@ -200,7 +200,7 @@ async fn create_backup(
     }
 
     let response = client
-        .post(&format!("{}/backup/create", host))
+        .post(&format!("{host}/backup/create"))
         .header("Authorization", auth_header)
         .header("Content-Type", "application/json")
         .json(&payload)
@@ -211,9 +211,9 @@ async fn create_backup(
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка создания резервной копии: {}", body);
+        eprintln!("❌ Ошибка создания резервной копии: {body}");
     }
 
     Ok(())
@@ -227,7 +227,7 @@ async fn restore_backup(
     let client = reqwest::Client::new();
 
     let response = client
-        .post(&format!("{}/backup/restore", host))
+        .post(&format!("{host}/backup/restore"))
         .header("Authorization", auth_header)
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({
@@ -240,9 +240,9 @@ async fn restore_backup(
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка восстановления из резервной копии: {}", body);
+        eprintln!("❌ Ошибка восстановления из резервной копии: {body}");
     }
 
     Ok(())
@@ -252,7 +252,7 @@ async fn list_backups(host: &str, auth_header: &str) -> Result<(), Box<dyn std::
     let client = reqwest::Client::new();
 
     let response = client
-        .get(&format!("{}/backup/list", host))
+        .get(&format!("{host}/backup/list"))
         .header("Authorization", auth_header)
         .send()
         .await?;
@@ -261,9 +261,9 @@ async fn list_backups(host: &str, auth_header: &str) -> Result<(), Box<dyn std::
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка получения списка резервных копий: {}", body);
+        eprintln!("❌ Ошибка получения списка резервных копий: {body}");
     }
 
     Ok(())
@@ -272,15 +272,15 @@ async fn list_backups(host: &str, auth_header: &str) -> Result<(), Box<dyn std::
 async fn check_health(host: &str) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let response = client.get(&format!("{}/health", host)).send().await?;
+    let response = client.get(&format!("{host}/health")).send().await?;
 
     let status = response.status();
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка проверки состояния: {}", body);
+        eprintln!("❌ Ошибка проверки состояния: {body}");
     }
 
     Ok(())
@@ -289,15 +289,15 @@ async fn check_health(host: &str) -> Result<(), Box<dyn std::error::Error>> {
 async fn get_metrics(host: &str) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
-    let response = client.get(&format!("{}/metrics", host)).send().await?;
+    let response = client.get(&format!("{host}/metrics")).send().await?;
 
     let status = response.status();
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка получения метрик: {}", body);
+        eprintln!("❌ Ошибка получения метрик: {body}");
     }
 
     Ok(())
@@ -335,7 +335,7 @@ async fn get_node(
     let client = reqwest::Client::new();
 
     let response = client
-        .get(&format!("{}/nodes/{}", host, id))
+        .get(&format!("{host}/nodes/{id}"))
         .header("Authorization", auth_header)
         .send()
         .await?;
@@ -344,9 +344,9 @@ async fn get_node(
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка получения узла: {}", body);
+        eprintln!("❌ Ошибка получения узла: {body}");
     }
 
     Ok(())
@@ -393,7 +393,7 @@ async fn create_node(
     };
 
     let response = client
-        .post(&format!("{}/nodes/{}", host, id))
+        .post(&format!("{host}/nodes/{id}"))
         .header("Authorization", auth_header)
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({
@@ -408,18 +408,18 @@ async fn create_node(
     let body = response.text().await?;
 
     if status.is_success() {
-        println!("{}", body);
+        println!("{body}");
     } else {
-        eprintln!("❌ Ошибка создания узла: {}", body);
+        eprintln!("❌ Ошибка создания узла: {body}");
     }
 
     Ok(())
 }
 
 async fn delete_node(
-    host: &str,
-    auth_header: &str,
-    id: u64,
+    _host: &str,
+    _auth_header: &str,
+    _id: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("❌ Удаление узлов напрямую не поддерживается через API. Используйте транзакции.");
     Ok(())
@@ -445,15 +445,15 @@ async fn handle_transaction_command(
 }
 
 async fn begin_transaction(
-    host: &str,
-    auth_header: &str,
+    _host: &str,
+    _auth_header: &str,
     file: &Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let operations = if let Some(file_path) = file {
+    if let Some(file_path) = file {
         let content = fs::read_to_string(file_path)?;
         // В реальной системе здесь будет парсинг файла транзакции
-        println!("📁 Транзакция начата из файла: {}", file_path);
-        println!("   Содержимое: {}", content);
+        println!("📁 Транзакция начата из файла: {file_path}");
+        println!("   Содержимое: {content}");
     } else {
         println!("📁 Интерактивная транзакция начата");
     };
@@ -465,8 +465,8 @@ async fn begin_transaction(
 }
 
 async fn commit_transaction(
-    host: &str,
-    auth_header: &str,
+    _host: &str,
+    _auth_header: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Выполнение коммита транзакции...");
     // В реальной системе здесь будет вызов API для коммита транзакции
@@ -475,8 +475,8 @@ async fn commit_transaction(
 }
 
 async fn rollback_transaction(
-    host: &str,
-    auth_header: &str,
+    _host: &str,
+    _auth_header: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Выполнение отката транзакции...");
     // В реальной системе здесь будет вызов API для отката транзакции

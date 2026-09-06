@@ -2,8 +2,7 @@ use crate::embedding::{EmbeddingModel, EmbeddingService};
 use crate::hybrid_storage::{HybridPersistentStore, Node};
 use crate::math::MatryoshkaDim;
 use axum::{
-    body::Bytes,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, State},
     http::StatusCode,
     response::Json,
 };
@@ -75,7 +74,7 @@ pub async fn universal_ingest(
 
         // Update collection if specified
         if name == "collection" {
-            if let Some(collection_text) = field.text().await.ok() {
+            if let Ok(collection_text) = field.text().await {
                 stats.collection = collection_text;
             }
             continue;
@@ -103,7 +102,7 @@ pub async fn universal_ingest(
                     nodes_to_insert.append(&mut new_nodes);
                 }
                 Err(e) => {
-                    eprintln!("Error processing file {}: {}", file_name, e);
+                    eprintln!("Error processing file {file_name}: {e}");
                     return Err(StatusCode::UNPROCESSABLE_ENTITY);
                 }
             }
@@ -113,7 +112,7 @@ pub async fn universal_ingest(
     // Insert all nodes into the database
     for node in nodes_to_insert {
         if let Err(e) = store.insert(node) {
-            eprintln!("Error inserting node: {}", e);
+            eprintln!("Error inserting node: {e}");
         } else {
             stats.nodes_created += 1;
         }
@@ -125,8 +124,6 @@ pub async fn universal_ingest(
 }
 
 async fn process_pdf(data: &[u8], filename: &str) -> Result<Vec<Node>, Box<dyn std::error::Error>> {
-    use std::io::Cursor;
-
     let text = pdf_extract::extract_text_from_mem(data)?;
 
     let chunks = text_to_chunks(&text, 512);
@@ -161,7 +158,10 @@ async fn process_csv(data: &[u8], filename: &str) -> Result<Vec<Node>, Box<dyn s
         match result {
             Ok(record) => {
                 if i == 0 {
-                    headers = record.iter().map(|field| field.to_string()).collect();
+                    headers = record
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect();
                     continue;
                 }
 
@@ -173,7 +173,7 @@ async fn process_csv(data: &[u8], filename: &str) -> Result<Vec<Node>, Box<dyn s
                     }
                 }
 
-                let text = format!("{:?}", record_obj);
+                let text = format!("{record_obj:?}");
                 let vector = generate_embedding(&text, 384).await?;
 
                 let node = Node {
@@ -324,7 +324,7 @@ async fn process_generic(
 fn text_to_chunks(text: &str, chunk_size: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current_chunk = String::new();
-    let mut word_buffer = String::new();
+    let _word_buffer = String::new();
 
     for word in text.split_whitespace() {
         if current_chunk.len() + word.len() + 1 > chunk_size && !current_chunk.is_empty() {
@@ -332,10 +332,10 @@ fn text_to_chunks(text: &str, chunk_size: usize) -> Vec<String> {
             current_chunk.clear();
         }
 
-        if !current_chunk.is_empty() {
+        if current_chunk.is_empty() {
+            current_chunk.push(' ');
             current_chunk.push_str(word);
         } else {
-            current_chunk.push(' ');
             current_chunk.push_str(word);
         }
     }
@@ -355,7 +355,7 @@ async fn generate_embedding(text: &str, dimension: usize) -> Result<Vec<f32>, St
     let mut embedding = service
         .generate_embedding(text, false)
         .await
-        .map_err(|e| format!("Embedding generation failed: {}", e))?;
+        .map_err(|e| format!("Embedding generation failed: {e}"))?;
 
     // Конвертируем в нужную размерность Matryoshka если нужно
     if embedding.len() != dimension {
@@ -423,7 +423,7 @@ pub async fn search_ingested(
         .unwrap_or("d384");
     let threshold = request
         .get("threshold")
-        .and_then(|v| v.as_f64())
+        .and_then(serde_json::Value::as_f64)
         .unwrap_or(0.3) as f32;
 
     let dimension = match dimension_str {
@@ -437,7 +437,7 @@ pub async fn search_ingested(
     let query_vector = generate_embedding(query, dimension.size())
         .await
         .map_err(|e| {
-            eprintln!("Embedding generation failed: {}", e);
+            eprintln!("Embedding generation failed: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

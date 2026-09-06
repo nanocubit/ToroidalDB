@@ -1,5 +1,4 @@
 use serde_json::json;
-use std::collections::HashMap;
 
 // Тестовые данные для графовых обходов
 pub struct GraphTestData {
@@ -21,6 +20,12 @@ pub struct Connection {
     pub to_id: u64,
     pub relation_type: String,
     pub weight: f32,
+}
+
+impl Default for GraphTestData {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GraphTestData {

@@ -4,7 +4,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use std::collections::{BinaryHeap, HashMap};
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 type SearchResult = Result<Vec<(usize, f32)>, String>;
 
@@ -90,7 +90,7 @@ impl HnswIndex {
             visited.insert(candidate.id, true);
 
             if let Some(node) = nodes.get(&candidate.id) {
-                for (neighbor_id, dist) in &node.edges {
+                for (neighbor_id, _dist) in &node.edges {
                     if *neighbor_id == candidate.id {
                         continue;
                     }
@@ -223,7 +223,7 @@ impl VectorIndex for HnswIndex {
             }
 
             let m = self.get_m();
-            for (lvl, nbrs) in neighbors.iter().enumerate() {
+            for (_lvl, nbrs) in neighbors.iter().enumerate() {
                 let mut final_nbrs = nbrs.clone();
                 final_nbrs.truncate(m);
                 {

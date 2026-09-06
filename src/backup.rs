@@ -1,7 +1,6 @@
 use crate::hybrid_storage::{HybridPersistentStore, Node};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,23 +76,23 @@ impl BackupManager {
 
         let backup_path = format!("{}/{}", self.backup_dir, backup_id);
         std::fs::create_dir_all(&backup_path)
-            .map_err(|e| format!("Failed to create backup directory: {}", e))?;
+            .map_err(|e| format!("Failed to create backup directory: {e}"))?;
 
         // Get all nodes
         let nodes = store
             .get_all()
-            .map_err(|e| format!("Failed to get nodes for backup: {}", e))?;
+            .map_err(|e| format!("Failed to get nodes for backup: {e}"))?;
 
         let node_count = nodes.len();
 
         // Serialize nodes to JSON
         let nodes_json = serde_json::to_string_pretty(&nodes)
-            .map_err(|e| format!("Failed to serialize nodes: {}", e))?;
+            .map_err(|e| format!("Failed to serialize nodes: {e}"))?;
 
         // Write nodes to backup file
-        let nodes_file = format!("{}/nodes.json", backup_path);
+        let nodes_file = format!("{backup_path}/nodes.json");
         std::fs::write(&nodes_file, &nodes_json)
-            .map_err(|e| format!("Failed to write nodes file: {}", e))?;
+            .map_err(|e| format!("Failed to write nodes file: {e}"))?;
 
         // Create backup metadata
         let metadata = BackupMetadata {
@@ -106,11 +105,11 @@ impl BackupManager {
         };
 
         let metadata_json = serde_json::to_string_pretty(&metadata)
-            .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+            .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
 
-        let metadata_file = format!("{}/metadata.json", backup_path);
+        let metadata_file = format!("{backup_path}/metadata.json");
         std::fs::write(&metadata_file, &metadata_json)
-            .map_err(|e| format!("Failed to write metadata file: {}", e))?;
+            .map_err(|e| format!("Failed to write metadata file: {e}"))?;
 
         println!(
             "✅ Backup created: {} ({} nodes, {} bytes)",
@@ -130,17 +129,17 @@ impl BackupManager {
         }
 
         let entries = std::fs::read_dir(&self.backup_dir)
-            .map_err(|e| format!("Failed to read backup directory: {}", e))?;
+            .map_err(|e| format!("Failed to read backup directory: {e}"))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
             let path = entry.path();
 
             if path.is_dir() {
                 let metadata_file = path.join("metadata.json");
                 if metadata_file.exists() {
                     let metadata_content = std::fs::read_to_string(&metadata_file)
-                        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+                        .map_err(|e| format!("Failed to read metadata: {e}"))?;
 
                     if let Ok(metadata) = serde_json::from_str::<BackupMetadata>(&metadata_content)
                     {
@@ -171,20 +170,20 @@ impl BackupManager {
         let backup_path = format!("{}/{}", self.backup_dir, backup_id);
 
         if !Path::new(&backup_path).exists() {
-            return Err(format!("Backup {} not found", backup_id));
+            return Err(format!("Backup {backup_id} not found"));
         }
 
-        let nodes_file = format!("{}/nodes.json", backup_path);
+        let nodes_file = format!("{backup_path}/nodes.json");
         if !Path::new(&nodes_file).exists() {
-            return Err(format!("Nodes file not found in backup {}", backup_id));
+            return Err(format!("Nodes file not found in backup {backup_id}"));
         }
 
         // Read nodes from backup
         let nodes_content = std::fs::read_to_string(&nodes_file)
-            .map_err(|e| format!("Failed to read nodes file: {}", e))?;
+            .map_err(|e| format!("Failed to read nodes file: {e}"))?;
 
         let nodes: Vec<Node> = serde_json::from_str(&nodes_content)
-            .map_err(|e| format!("Failed to deserialize nodes: {}", e))?;
+            .map_err(|e| format!("Failed to deserialize nodes: {e}"))?;
 
         // Restore nodes
         let mut restored_count = 0;
@@ -192,22 +191,19 @@ impl BackupManager {
             if force_overwrite {
                 store
                     .insert(node)
-                    .map_err(|e| format!("Failed to insert node: {}", e))?;
+                    .map_err(|e| format!("Failed to insert node: {e}"))?;
             } else {
                 // Only insert if node doesn't exist
                 if let Ok(None) = store.get(node.id) {
                     store
                         .insert(node)
-                        .map_err(|e| format!("Failed to insert node: {}", e))?;
+                        .map_err(|e| format!("Failed to insert node: {e}"))?;
                 }
             }
             restored_count += 1;
         }
 
-        println!(
-            "✅ Restored {} nodes from backup: {}",
-            restored_count, backup_id
-        );
+        println!("✅ Restored {restored_count} nodes from backup: {backup_id}");
         Ok(())
     }
 
@@ -215,19 +211,19 @@ impl BackupManager {
         let backup_path = format!("{}/{}", self.backup_dir, backup_id);
 
         if !Path::new(&backup_path).exists() {
-            return Err(format!("Backup {} not found", backup_id));
+            return Err(format!("Backup {backup_id} not found"));
         }
 
-        let metadata_file = format!("{}/metadata.json", backup_path);
+        let metadata_file = format!("{backup_path}/metadata.json");
         if !Path::new(&metadata_file).exists() {
-            return Err(format!("Metadata not found for backup {}", backup_id));
+            return Err(format!("Metadata not found for backup {backup_id}"));
         }
 
         let metadata_content = std::fs::read_to_string(&metadata_file)
-            .map_err(|e| format!("Failed to read metadata: {}", e))?;
+            .map_err(|e| format!("Failed to read metadata: {e}"))?;
 
         let metadata = serde_json::from_str::<BackupMetadata>(&metadata_content)
-            .map_err(|e| format!("Failed to parse metadata: {}", e))?;
+            .map_err(|e| format!("Failed to parse metadata: {e}"))?;
 
         Ok(BackupInfo {
             backup_id: metadata.backup_id,
@@ -252,10 +248,10 @@ impl BackupManager {
         }
 
         let entries = std::fs::read_dir(&self.backup_dir)
-            .map_err(|e| format!("Failed to read backup directory: {}", e))?;
+            .map_err(|e| format!("Failed to read backup directory: {e}"))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
             let path = entry.path();
 
             if path.is_dir() {
@@ -267,7 +263,7 @@ impl BackupManager {
                             if duration.as_secs() < cutoff_time {
                                 println!("🗑️ Removing old backup: {}", metadata.backup_id);
                                 std::fs::remove_dir_all(&path)
-                                    .map_err(|e| format!("Failed to remove old backup: {}", e))?;
+                                    .map_err(|e| format!("Failed to remove old backup: {e}"))?;
                                 removed_count += 1;
                             }
                         }

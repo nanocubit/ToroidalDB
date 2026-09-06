@@ -52,7 +52,7 @@ impl AccessPredictor {
 
     /// Get current frequency score for a node.
     pub fn score(&self, node_id: u64) -> f32 {
-        self.freq.get(&node_id).map(|e| e.0).unwrap_or(0.0)
+        self.freq.get(&node_id).map_or(0.0, |e| e.0)
     }
 
     /// Predict hot nodes above threshold.
@@ -62,7 +62,7 @@ impl AccessPredictor {
             .iter()
             .filter(|entry| entry.0 > self.threshold)
             .map(|entry| AccessPrediction {
-                node_id: entry.key().clone(),
+                node_id: *entry.key(),
                 probability: (entry.0 / 100.0).min(1.0),
             })
             .collect();

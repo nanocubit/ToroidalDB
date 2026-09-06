@@ -1,9 +1,5 @@
 use lazy_static::lazy_static;
-use prometheus::{
-    opts, Counter, Gauge, Histogram, HistogramOpts, IntCounterVec, Registry, TextEncoder,
-};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use prometheus::{opts, Gauge, Histogram, HistogramOpts, IntCounterVec, Registry, TextEncoder};
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();

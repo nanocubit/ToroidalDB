@@ -144,7 +144,7 @@ impl SchemaRegistry {
             _ => Err(SchemaError::TypeMismatch {
                 field: field_name.to_string(),
                 expected: "VECTOR".to_string(),
-                actual: format!("{:?}", data_type),
+                actual: format!("{data_type:?}"),
             }),
         }
     }
@@ -212,21 +212,17 @@ impl std::fmt::Display for SchemaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SchemaError::LockError => write!(f, "Failed to acquire lock"),
-            SchemaError::TypeAlreadyExists(name) => write!(f, "Type '{}' already exists", name),
-            SchemaError::TypeNotFound(name) => write!(f, "Type '{}' not found", name),
-            SchemaError::UnknownNodeType(name) => write!(f, "Unknown node type '{}'", name),
-            SchemaError::FieldNotFound(name) => write!(f, "Field '{}' not found", name),
-            SchemaError::TypeInUse(name) => write!(f, "Type '{}' is in use by edges", name),
+            SchemaError::TypeAlreadyExists(name) => write!(f, "Type '{name}' already exists"),
+            SchemaError::TypeNotFound(name) => write!(f, "Type '{name}' not found"),
+            SchemaError::UnknownNodeType(name) => write!(f, "Unknown node type '{name}'"),
+            SchemaError::FieldNotFound(name) => write!(f, "Field '{name}' not found"),
+            SchemaError::TypeInUse(name) => write!(f, "Type '{name}' is in use by edges"),
             SchemaError::TypeMismatch {
                 field,
                 expected,
                 actual,
             } => {
-                write!(
-                    f,
-                    "Field '{}': expected {}, got {}",
-                    field, expected, actual
-                )
+                write!(f, "Field '{field}': expected {expected}, got {actual}")
             }
             SchemaError::DimensionMismatch {
                 field,
@@ -235,12 +231,11 @@ impl std::fmt::Display for SchemaError {
             } => {
                 write!(
                     f,
-                    "Field '{}': expected dimension {}, got {}",
-                    field, expected, actual
+                    "Field '{field}': expected dimension {expected}, got {actual}"
                 )
             }
             SchemaError::InvalidDimension(name) => {
-                write!(f, "Invalid dimension for field '{}'", name)
+                write!(f, "Invalid dimension for field '{name}'")
             }
             SchemaError::MultiplePrimaryKeys => write!(f, "Multiple primary keys not allowed"),
         }

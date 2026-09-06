@@ -2,7 +2,7 @@
 //!
 //! Графовые аналитические функции: CENTRALITY, PAGERANK, COMMUNITY DETECTION
 
-use crate::hybrid_storage::{HybridPersistentStore, Node};
+use crate::hybrid_storage::HybridPersistentStore;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Графовый аналитический движок
@@ -143,7 +143,7 @@ impl GraphAnalytics {
             let norm: f32 = new_centrality.iter().map(|&x| x * x).sum::<f32>().sqrt();
 
             if norm > 0.0 {
-                for x in new_centrality.iter_mut() {
+                for x in &mut new_centrality {
                     *x /= norm;
                 }
             }
@@ -159,7 +159,7 @@ impl GraphAnalytics {
         }
     }
 
-    /// PageRank алгоритм
+    /// `PageRank` алгоритм
     pub fn pagerank(
         store: &HybridPersistentStore,
         node_id: u64,
@@ -404,7 +404,7 @@ impl GraphAnalytics {
         )?;
 
         // Находим минимальную длину
-        if let Some(min_len) = paths.iter().map(|p| p.len()).min() {
+        if let Some(min_len) = paths.iter().map(std::vec::Vec::len).min() {
             paths.retain(|p| p.len() == min_len);
         }
 

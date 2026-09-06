@@ -11,7 +11,6 @@ use crate::math::{pad_or_truncate, toroidal_distance, MatryoshkaDim};
 /// Реализация основана на работе "Ricci curvature of graphs" (Lin-Lu-Yau, 2011)
 /// и адаптирована для тороидальных пространств
 use crate::topology::algebra::apply_homotopy;
-use crate::topology::edges::HomotopyClass;
 
 /// Оптимизирует вложение набора узлов в тор заданной размерности
 /// с использованием дискретного потока Риччи

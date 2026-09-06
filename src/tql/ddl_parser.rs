@@ -3,7 +3,7 @@ use crate::tql::ast::{
 };
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case},
+    bytes::complete::tag_no_case,
     character::complete::{char, digit1, multispace0, multispace1},
     combinator::{map, map_res, opt},
     multi::{many0, separated_list0},
@@ -17,14 +17,14 @@ fn parse_whitespace(input: &str) -> IResult<&str, ()> {
 }
 
 fn parse_identifier(input: &str) -> IResult<&str, &str> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, ident) =
         nom::bytes::complete::take_while1(|c: char| c.is_alphanumeric() || c == '_')(input)?;
     Ok((input, ident))
 }
 
 fn parse_data_type(input: &str) -> IResult<&str, DataType> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     alt((
         map(tag_no_case("INT"), |_| DataType::Int),
@@ -44,7 +44,7 @@ fn parse_data_type(input: &str) -> IResult<&str, DataType> {
 }
 
 fn parse_field_constraint(input: &str) -> IResult<&str, FieldConstraint> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     alt((
         map(tag_no_case("NOT NULL"), |_| FieldConstraint::NotNull),
@@ -62,13 +62,13 @@ fn parse_field_constraint(input: &str) -> IResult<&str, FieldConstraint> {
                 nom::number::complete::float,
                 char(')'),
             )),
-            |(_, _, _, _, _, _, _, phi, _)| FieldConstraint::VectorIndex { phi },
+            |(_, (), _, _, (), _, (), phi, _)| FieldConstraint::VectorIndex { phi },
         ),
     ))(input)
 }
 
 fn parse_field_def(input: &str) -> IResult<&str, FieldDef> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     let (input, name) = parse_identifier(input)?;
     let (input, _) = multispace1(input)?;
@@ -93,20 +93,20 @@ fn parse_field_def(input: &str) -> IResult<&str, FieldDef> {
 }
 
 fn parse_field_list(input: &str) -> IResult<&str, Vec<FieldDef>> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, _) = char('(')(input)?;
     let (input, fields) = separated_list0(
         tuple((parse_whitespace, char(','), parse_whitespace)),
         parse_field_def,
     )(input)?;
     // Допускаем пробелы/переводы строк перед закрывающей скобкой
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, _) = char(')')(input)?;
     Ok((input, fields))
 }
 
 fn parse_create_node_type(input: &str) -> IResult<&str, DdlStatement> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     let (input, _) = tag_no_case("CREATE")(input)?;
     let (input, _) = multispace1(input)?;
@@ -127,7 +127,7 @@ fn parse_create_node_type(input: &str) -> IResult<&str, DdlStatement> {
 }
 
 fn parse_create_edge_type(input: &str) -> IResult<&str, DdlStatement> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     let (input, _) = tag_no_case("CREATE")(input)?;
     let (input, _) = multispace1(input)?;
@@ -136,26 +136,26 @@ fn parse_create_edge_type(input: &str) -> IResult<&str, DdlStatement> {
     let (input, _) = tag_no_case("TYPE")(input)?;
     let (input, _) = multispace1(input)?;
     let (input, name) = parse_identifier(input)?;
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, _) = char('(')(input)?;
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     // Parse FROM and TO
     let (input, _) = tag_no_case("from")(input)?;
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, from) = parse_identifier(input)?;
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, _) = char(',')(input)?;
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     let (input, _) = tag_no_case("to")(input)?;
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, to) = parse_identifier(input)?;
 
     // Optional fields
     let (input, fields) = if input.starts_with(',') {
         let (input, _) = char(',')(input)?;
-        let (input, _) = parse_whitespace(input)?;
+        let (input, ()) = parse_whitespace(input)?;
         separated_list0(
             tuple((parse_whitespace, char(','), parse_whitespace)),
             parse_field_def,
@@ -164,7 +164,7 @@ fn parse_create_edge_type(input: &str) -> IResult<&str, DdlStatement> {
         (input, vec![])
     };
 
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
     let (input, _) = char(')')(input)?;
 
     Ok((
@@ -179,7 +179,7 @@ fn parse_create_edge_type(input: &str) -> IResult<&str, DdlStatement> {
 }
 
 fn parse_drop_node_type(input: &str) -> IResult<&str, DdlStatement> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     let (input, _) = tag_no_case("DROP")(input)?;
     let (input, _) = multispace1(input)?;
@@ -193,7 +193,7 @@ fn parse_drop_node_type(input: &str) -> IResult<&str, DdlStatement> {
 }
 
 fn parse_drop_edge_type(input: &str) -> IResult<&str, DdlStatement> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     let (input, _) = tag_no_case("DROP")(input)?;
     let (input, _) = multispace1(input)?;
@@ -207,7 +207,7 @@ fn parse_drop_edge_type(input: &str) -> IResult<&str, DdlStatement> {
 }
 
 fn parse_show_schema(input: &str) -> IResult<&str, DdlStatement> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     let (input, _) = tag_no_case("SHOW")(input)?;
     let (input, _) = multispace1(input)?;
@@ -217,7 +217,7 @@ fn parse_show_schema(input: &str) -> IResult<&str, DdlStatement> {
 }
 
 pub fn parse_ddl_statement(input: &str) -> IResult<&str, DdlStatement> {
-    let (input, _) = parse_whitespace(input)?;
+    let (input, ()) = parse_whitespace(input)?;
 
     alt((
         parse_create_node_type,

@@ -1,4 +1,4 @@
-use crate::tql::ast::{WindowExpression, WindowFunction, WindowSpec};
+use crate::tql::ast::{WindowExpression, WindowFunction};
 use std::collections::HashMap;
 
 pub struct WindowFunctionExecutor {
@@ -21,8 +21,7 @@ impl WindowFunctionExecutor {
         let partition = window_expr
             .window_spec
             .as_ref()
-            .map(|spec| &spec.partition_by)
-            .unwrap_or(&empty_partition);
+            .map_or(&empty_partition, |spec| &spec.partition_by);
 
         if partition.is_empty() {
             self.execute_non_partitioned(data, &window_expr.function)
@@ -46,7 +45,7 @@ impl WindowFunctionExecutor {
             WindowFunction::DenseRank => Ok(self.compute_dense_rank(data)),
             WindowFunction::Lag(field) => Ok(self.compute_lag(data, field, 1)),
             WindowFunction::Lead(field) => Ok(self.compute_lead(data, field, 1)),
-            WindowFunction::FirstValue(field) => {
+            WindowFunction::FirstValue(_field) => {
                 let first = data
                     .first()
                     .and_then(|row| row.iter().find(|v| !v.is_null()))
@@ -54,7 +53,7 @@ impl WindowFunctionExecutor {
                     .unwrap_or(serde_json::Value::Null);
                 Ok(vec![first; data.len()])
             }
-            WindowFunction::LastValue(field) => {
+            WindowFunction::LastValue(_field) => {
                 let last = data
                     .last()
                     .and_then(|row| row.iter().find(|v| !v.is_null()))
@@ -69,7 +68,11 @@ impl WindowFunctionExecutor {
                 let sum =
                     self.compute_aggregate(data, field, |acc, v| acc + v.as_f64().unwrap_or(0.0))?;
                 let count = data.len() as f64;
-                let avg = sum.first().and_then(|v| v.as_f64()).unwrap_or(0.0) / count;
+                let avg = sum
+                    .first()
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.0)
+                    / count;
                 Ok(vec![serde_json::json!(avg); data.len()])
             }
             WindowFunction::Count => {
@@ -91,14 +94,15 @@ impl WindowFunctionExecutor {
             let key = partition_by
                 .iter()
                 .enumerate()
-                .map(|(i, _)| row.get(i).map(|v| v.to_string()).unwrap_or_default())
+                .map(|(i, _)| {
+                    row.get(i)
+                        .map(std::string::ToString::to_string)
+                        .unwrap_or_default()
+                })
                 .collect::<Vec<_>>()
                 .join("|");
 
-            partitions
-                .entry(key)
-                .or_insert_with(Vec::new)
-                .push(row.clone());
+            partitions.entry(key).or_default().push(row.clone());
         }
 
         let mut results = Vec::with_capacity(data.len());
@@ -107,7 +111,11 @@ impl WindowFunctionExecutor {
             let key = partition_by
                 .iter()
                 .enumerate()
-                .map(|(i, _)| row.get(i).map(|v| v.to_string()).unwrap_or_default())
+                .map(|(i, _)| {
+                    row.get(i)
+                        .map(std::string::ToString::to_string)
+                        .unwrap_or_default()
+                })
                 .collect::<Vec<_>>()
                 .join("|");
 
@@ -132,7 +140,7 @@ impl WindowFunctionExecutor {
                         let pos = unique_rows.iter().position(|r| *r == row).unwrap_or(0);
                         serde_json::json!((pos + 1) as i64)
                     }
-                    WindowFunction::Lag(field) => {
+                    WindowFunction::Lag(_field) => {
                         let pos = partition.iter().position(|r| r == row).unwrap_or(0);
                         if pos > 0 {
                             partition[pos - 1]
@@ -144,7 +152,7 @@ impl WindowFunctionExecutor {
                             serde_json::Value::Null
                         }
                     }
-                    WindowFunction::Lead(field) => {
+                    WindowFunction::Lead(_field) => {
                         let pos = partition.iter().position(|r| r == row).unwrap_or(0);
                         if pos < partition.len() - 1 {
                             partition[pos + 1]
@@ -156,27 +164,27 @@ impl WindowFunctionExecutor {
                             serde_json::Value::Null
                         }
                     }
-                    WindowFunction::FirstValue(field) => partition
+                    WindowFunction::FirstValue(_field) => partition
                         .first()
                         .and_then(|row| row.iter().find(|v| !v.is_null()))
                         .cloned()
                         .unwrap_or(serde_json::Value::Null),
-                    WindowFunction::LastValue(field) => partition
+                    WindowFunction::LastValue(_field) => partition
                         .last()
                         .and_then(|row| row.iter().find(|v| !v.is_null()))
                         .cloned()
                         .unwrap_or(serde_json::Value::Null),
-                    WindowFunction::Sum(field) => {
+                    WindowFunction::Sum(_field) => {
                         let sum: f64 = partition
                             .iter()
-                            .flat_map(|row| row.iter().filter_map(|v| v.as_f64()))
+                            .flat_map(|row| row.iter().filter_map(serde_json::Value::as_f64))
                             .sum();
                         serde_json::json!(sum)
                     }
-                    WindowFunction::Avg(field) => {
+                    WindowFunction::Avg(_field) => {
                         let values: Vec<f64> = partition
                             .iter()
-                            .flat_map(|row| row.iter().filter_map(|v| v.as_f64()))
+                            .flat_map(|row| row.iter().filter_map(serde_json::Value::as_f64))
                             .collect();
                         if values.is_empty() {
                             serde_json::Value::Null
@@ -301,7 +309,7 @@ impl WindowFunctionExecutor {
 
         let mut results = Vec::with_capacity(data.len());
 
-        for (i, row) in data.iter().enumerate() {
+        for (i, _row) in data.iter().enumerate() {
             if i + offset < data.len() {
                 results.push(
                     data[i + offset]

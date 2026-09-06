@@ -21,7 +21,7 @@ pub trait VectorIndex: Send + Sync {
         &mut self,
         id: usize,
         vector: &Vector,
-        payload: HashMap<String, String>,
+        _payload: HashMap<String, String>,
     ) -> Result<(), String> {
         self.add(id, vector)
     }
@@ -30,7 +30,7 @@ pub trait VectorIndex: Send + Sync {
         &self,
         query: &Vector,
         k: usize,
-        filter: &Filter,
+        _filter: &Filter,
     ) -> Result<Vec<(usize, f32)>, String> {
         self.search(query, k)
     }
@@ -91,13 +91,10 @@ pub enum Condition {
 impl Condition {
     pub fn matches(&self, payload: &HashMap<String, String>) -> bool {
         match self {
-            Condition::Match { key, value } => {
-                payload.get(key).map(|v| v == value).unwrap_or(false)
+            Condition::Match { key, value } => payload.get(key).is_some_and(|v| v == value),
+            Condition::MatchAny { key, values } => {
+                payload.get(key).is_some_and(|v| values.contains(v))
             }
-            Condition::MatchAny { key, values } => payload
-                .get(key)
-                .map(|v| values.contains(v))
-                .unwrap_or(false),
             Condition::Range { key, min, max } => {
                 let val: f64 = match payload.get(key).and_then(|v| v.parse().ok()) {
                     Some(v) => v,
@@ -111,28 +108,20 @@ impl Condition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum MemoryTier {
     Pinned,
+    #[default]
     Cached,
     Cold,
 }
-impl Default for MemoryTier {
-    fn default() -> Self {
-        MemoryTier::Cached
-    }
-}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum IndexType {
+    #[default]
     Hnsw,
     Ivf,
     BruteForce,
-}
-impl Default for IndexType {
-    fn default() -> Self {
-        IndexType::Hnsw
-    }
 }
 
 pub struct IndexConfig {

@@ -25,10 +25,7 @@ impl Graph {
     pub fn add_edge(&mut self, from: usize, to: usize, weight: f64) {
         self.nodes.insert(from);
         self.nodes.insert(to);
-        self.adjacency
-            .entry(from)
-            .or_insert_with(Vec::new)
-            .push((to, weight));
+        self.adjacency.entry(from).or_default().push((to, weight));
     }
 
     pub fn add_undirected_edge(&mut self, from: usize, to: usize, weight: f64) {
@@ -278,7 +275,7 @@ pub fn eigenvector_centrality(
     iterations: usize,
     tolerance: f64,
 ) -> HashMap<usize, f64> {
-    let nodes: Vec<usize> = graph.nodes().iter().cloned().collect();
+    let nodes: Vec<usize> = graph.nodes().iter().copied().collect();
     let n = nodes.len();
 
     if n == 0 {
@@ -304,7 +301,7 @@ pub fn eigenvector_centrality(
         let norm: f64 = new_centrality.values().map(|v| v * v).sum::<f64>().sqrt();
 
         if norm > 0.0 {
-            for (_, v) in new_centrality.iter_mut() {
+            for (_, v) in &mut new_centrality {
                 *v /= norm;
             }
         }

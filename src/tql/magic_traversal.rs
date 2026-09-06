@@ -7,7 +7,7 @@
 //! узлы (дельта), не повторяет уже найденные.
 
 use crate::hybrid_storage::HybridPersistentStore;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Результат рекурсивного обхода.
@@ -56,7 +56,7 @@ impl MagicTraversal {
         levels.push(delta.iter().copied().collect());
         visited.extend(&delta);
 
-        for hop in 1..=max_hops {
+        for _hop in 1..=max_hops {
             if delta.is_empty() {
                 break;
             }
@@ -68,7 +68,7 @@ impl MagicTraversal {
                 let neighbors = self
                     .store
                     .get_neighbors(node_id)
-                    .map_err(|e| format!("Failed to get neighbors: {}", e))?;
+                    .map_err(|e| format!("Failed to get neighbors: {e}"))?;
 
                 for neighbor in &neighbors {
                     // Filter by edge type if specified
@@ -109,7 +109,7 @@ impl MagicTraversal {
         }
 
         // Remove duplicates and sort
-        result.sort();
+        result.sort_unstable();
         result.dedup();
 
         Ok(TraversalResult {

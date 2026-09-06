@@ -180,7 +180,7 @@ impl<K: Hash + Eq + Clone, V: Clone> LruKCache<K, V> {
     }
 
     pub fn get(&self, key: &K) -> Option<V> {
-        let mut cache = self.cache.write().unwrap();
+        let cache = self.cache.write().unwrap();
 
         if let Some(entry) = cache.get(key) {
             if entry.created_at.elapsed() > self.ttl {
@@ -194,7 +194,7 @@ impl<K: Hash + Eq + Clone, V: Clone> LruKCache<K, V> {
 
             {
                 let mut recent = self.recent_accesses.write().unwrap();
-                let times = recent.entry(key.clone()).or_insert_with(Vec::new);
+                let times = recent.entry(key.clone()).or_default();
                 times.push(now);
 
                 if times.len() > self.k {
@@ -234,7 +234,7 @@ impl<K: Hash + Eq + Clone, V: Clone> LruKCache<K, V> {
         }
 
         let mut recent = self.recent_accesses.write().unwrap();
-        recent.entry(key_clone).or_insert_with(Vec::new);
+        recent.entry(key_clone).or_default();
     }
 
     fn evict_lru_k(&self, cache: &mut HashMap<K, Arc<LruKEntry<V>>>) {

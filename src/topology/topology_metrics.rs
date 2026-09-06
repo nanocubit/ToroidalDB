@@ -144,13 +144,13 @@ impl TopologyMetricsCollector {
 
             let possible_edges = neighbors.len() * (neighbors.len() - 1) / 2;
             if possible_edges > 0 {
-                total_cc += triangles as f64 / possible_edges as f64;
+                total_cc += f64::from(triangles) / possible_edges as f64;
                 count += 1;
             }
         }
 
         if count > 0 {
-            total_cc / count as f64
+            total_cc / f64::from(count)
         } else {
             0.0
         }
@@ -164,7 +164,7 @@ impl TopologyMetricsCollector {
     }
 
     fn estimate_diameter(&self) -> Option<usize> {
-        let nodes: Vec<usize> = self.graph.nodes().iter().cloned().collect();
+        let nodes: Vec<usize> = self.graph.nodes().iter().copied().collect();
         if nodes.len() < 2 {
             return None;
         }
@@ -186,7 +186,7 @@ impl TopologyMetricsCollector {
     }
 
     fn estimate_average_path_length(&self) -> f64 {
-        let nodes: Vec<usize> = self.graph.nodes().iter().cloned().collect();
+        let nodes: Vec<usize> = self.graph.nodes().iter().copied().collect();
         if nodes.len() < 2 {
             return 0.0;
         }
@@ -197,7 +197,7 @@ impl TopologyMetricsCollector {
 
         for i in 0..sample_size {
             let distances = self.bfs_distances(nodes[i]);
-            for (j, &dist) in distances.iter() {
+            for (j, &dist) in &distances {
                 if *j != nodes[i] {
                     total_distance += dist as f64;
                     count += 1;
@@ -206,7 +206,7 @@ impl TopologyMetricsCollector {
         }
 
         if count > 0 {
-            total_distance / count as f64
+            total_distance / f64::from(count)
         } else {
             0.0
         }
@@ -236,18 +236,17 @@ impl TopologyMetricsCollector {
     }
 
     pub fn register_homotopy_class(&mut self, node_id: usize, class: &HomotopyClass) {
-        let class_str = format!("{:?}", class);
+        let class_str = format!("{class:?}");
         self.homotopy_classes
             .entry(class_str)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(node_id);
     }
 
     pub fn get_homotopy_class_count(&self, class: &str) -> usize {
         self.homotopy_classes
             .get(class)
-            .map(|s| s.len())
-            .unwrap_or(0)
+            .map_or(0, std::collections::HashSet::len)
     }
 
     pub fn track_topology_changes(&self, previous: &TopologyMetricsSnapshot) -> TopologyChanges {

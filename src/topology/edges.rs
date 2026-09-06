@@ -45,7 +45,7 @@ impl HomotopyClass {
     pub fn cost(&self) -> usize {
         match self {
             HomotopyClass::Direct => 0,
-            HomotopyClass::Wrapped(vec) => vec.iter().map(|&x| x.abs() as usize).sum(),
+            HomotopyClass::Wrapped(vec) => vec.iter().map(|&x| x.unsigned_abs() as usize).sum(),
             HomotopyClass::Nontrivial => usize::MAX,
         }
     }
@@ -129,9 +129,9 @@ pub fn compute_topological_distance(
     // Для 384 измерений это 3^384 вариантов — НЕВОЗМОЖНО перебрать все
     // Поэтому используем эвристику: заворачиваем ТОЛЬКО координаты с разницей > 0.9
 
-    let mut best_distance = f32::MAX;
-    let mut best_homotopy = HomotopyClass::Direct;
-    let mut best_wrapping = vec![0i32; common_size];
+    let _best_distance = f32::MAX;
+    let _best_homotopy = HomotopyClass::Direct;
+    let _best_wrapping = vec![0i32; common_size];
 
     // Эвристика: проверяем только координаты с большой разницей
     let critical_coords: Vec<usize> = a_proj

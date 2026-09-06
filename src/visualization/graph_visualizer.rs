@@ -1,4 +1,4 @@
-//! Графовый визуализатор для ToroidalDB
+//! Графовый визуализатор для `ToroidalDB`
 //!
 //! Предоставляет встроенный графовый визуализатор с поддержкой:
 //! - Интерактивных графов
@@ -7,11 +7,10 @@
 //! - Цветовой схемы по меткам
 
 use crate::storage::Node;
-use crate::topology::edges::InterToroidalEdge;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphVisualization {
@@ -379,10 +378,10 @@ impl GraphVisualizer {
     /// Экспортирует визуализацию в формате JSON
     pub fn export_to_json(&self, visualization: &GraphVisualization) -> Result<String, String> {
         serde_json::to_string(visualization)
-            .map_err(|e| format!("Failed to serialize visualization: {}", e))
+            .map_err(|e| format!("Failed to serialize visualization: {e}"))
     }
 
-    /// Экспортирует визуализацию в формате GraphML
+    /// Экспортирует визуализацию в формате `GraphML`
     pub fn export_to_graphml(&self, visualization: &GraphVisualization) -> Result<String, String> {
         let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         xml.push_str("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\">\n");

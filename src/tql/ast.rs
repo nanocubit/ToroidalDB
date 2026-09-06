@@ -137,25 +137,13 @@ impl Default for Query {
 // ==================== TQL v2.2: Query Hints ====================
 
 /// Hints for query optimization and execution
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct QueryHints {
     pub force_gpu: bool,
     pub scatter_shards: Option<u32>,  // HINT SCATTER N SHARDS
     pub prefer_local_shard: bool,     // HINT PREFERR LOCAL_SHARD
     pub backend: Option<BackendHint>, // USING GPU / AVX512 / AVX2 / SCALAR
     pub prefetch_hops: Option<u32>,   // HINT PREFETCH GRAPH_HOPS N
-}
-
-impl Default for QueryHints {
-    fn default() -> Self {
-        QueryHints {
-            force_gpu: false,
-            scatter_shards: None,
-            prefer_local_shard: false,
-            backend: None,
-            prefetch_hops: None,
-        }
-    }
 }
 
 /// Backend execution hints

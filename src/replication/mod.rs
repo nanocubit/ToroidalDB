@@ -206,7 +206,7 @@ impl ReplicationManager {
 
         for slave in slaves.iter().take(self.config.replication_factor - 1) {
             match self.send_to_replica(slave, &event).await {
-                Ok(_) => acks += 1,
+                Ok(()) => acks += 1,
                 Err(e) => errors.push(format!("{}: {}", slave.id, e)),
             }
         }
@@ -240,7 +240,7 @@ impl ReplicationManager {
         nodes
             .values()
             .map(|n| {
-                let status = n.status.read().unwrap().clone();
+                let _status = n.status.read().unwrap().clone();
                 let last_heartbeat = *n.last_heartbeat.read().unwrap();
                 let elapsed = last_heartbeat.elapsed();
 
@@ -275,10 +275,10 @@ impl ReplicationManager {
         let active_slaves = slaves.iter().filter(|n| n.is_active()).count();
         let total_slaves = slaves.len();
 
-        let quorum = (total_slaves + 1) / 2 + 1;
+        let quorum = total_slaves.div_ceil(2) + 1;
         let quorum_available = active_slaves >= quorum.saturating_sub(1);
 
-        let master_active = master.as_ref().map(|m| m.is_active()).unwrap_or(false);
+        let master_active = master.as_ref().is_some_and(|m| m.is_active());
 
         ReplicationStatus {
             master_active,
@@ -337,8 +337,7 @@ impl std::fmt::Display for ReplicationError {
             } => {
                 write!(
                     f,
-                    "Insufficient replicas: required {}, available {}",
-                    required, available
+                    "Insufficient replicas: required {required}, available {available}"
                 )
             }
             ReplicationError::ReplicationFailed {
@@ -347,11 +346,10 @@ impl std::fmt::Display for ReplicationError {
             } => {
                 write!(
                     f,
-                    "Replication failed: acks_received {}, required {}",
-                    acks_received, required
+                    "Replication failed: acks_received {acks_received}, required {required}"
                 )
             }
-            ReplicationError::NodeOffline(node) => write!(f, "Node offline: {}", node),
+            ReplicationError::NodeOffline(node) => write!(f, "Node offline: {node}"),
             ReplicationError::Timeout => write!(f, "Replication timeout"),
         }
     }

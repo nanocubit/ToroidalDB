@@ -3,7 +3,6 @@ use crate::tql::ast::Query;
 use crate::tql::executor::{QueryExecutor, QueryResult};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio;
 
 pub mod two_phase_commit;
 pub use two_phase_commit::TwoPhaseCommit;
@@ -34,7 +33,7 @@ impl QueryCoordinator {
         for shard_id in 0..self.shard_count {
             // Добавляем несколько виртуальных узлов для каждого шарда для лучшего распределения
             for replica in 0..3 {
-                let hash = Self::hash_key(&format!("shard_{}_replica_{}", shard_id, replica));
+                let hash = Self::hash_key(&format!("shard_{shard_id}_replica_{replica}"));
                 self.hash_ring.insert(hash, shard_id);
             }
         }
@@ -77,7 +76,7 @@ impl QueryCoordinator {
 
     pub fn route_node(&self, node_id: u64) -> u32 {
         // Определяем, на каком шарде должен находиться узел
-        let key = format!("node_{}", node_id);
+        let key = format!("node_{node_id}");
         let hash = Self::hash_key(&key);
 
         // Находим ближайший шард в кольце
@@ -121,10 +120,7 @@ impl DistributedExecutor {
                 match QueryExecutor::execute_query(&shard, query_clone).await {
                     Ok(results) => partial_results.push(results),
                     Err(e) => {
-                        return Err(format!(
-                            "Error executing query on shard {}: {}",
-                            shard_id, e
-                        ))
+                        return Err(format!("Error executing query on shard {shard_id}: {e}"))
                     }
                 }
             }
@@ -156,10 +152,10 @@ impl DistributedExecutor {
 
         let mut hasher = DefaultHasher::new();
         if let Some(ref match_clause) = query.match_clause {
-            format!("{:?}", match_clause).hash(&mut hasher);
+            format!("{match_clause:?}").hash(&mut hasher);
         }
         if let Some(ref where_clause) = query.where_clause {
-            format!("{:?}", where_clause).hash(&mut hasher);
+            format!("{where_clause:?}").hash(&mut hasher);
         }
         query.limit.hash(&mut hasher);
         query.distributed.hash(&mut hasher);
@@ -178,8 +174,8 @@ impl DistributedExecutor {
             // Выполняем транзакцию на каждом шарде
             // В реальной системе нужно координировать транзакции между шардами
             match crate::tql::QueryExecutor::execute_transaction(shard, transaction.clone()).await {
-                Ok(_) => continue,
-                Err(e) => return Err(format!("Transaction failed on shard: {}", e)),
+                Ok(()) => continue,
+                Err(e) => return Err(format!("Transaction failed on shard: {e}")),
             }
         }
 

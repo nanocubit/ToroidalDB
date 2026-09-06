@@ -3,7 +3,7 @@
 use crate::hybrid_storage::Node;
 use crate::topology::edges::{HomotopyClass, ToroidalLevel};
 use crate::topology::functions::{ricci_curvature, topological_centrality, toroidal_distance};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 /// Топологический индекс для эффективного поиска по гомотопическим классам
@@ -12,6 +12,12 @@ pub struct HomotopyClassIndex {
     classes: HashMap<HomotopyClass, Vec<u64>>,
     /// Обратная карта: узел -> его гомотопический класс
     node_to_class: HashMap<u64, HomotopyClass>,
+}
+
+impl Default for HomotopyClassIndex {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HomotopyClassIndex {
@@ -26,7 +32,7 @@ impl HomotopyClassIndex {
     pub fn add_node(&mut self, node_id: u64, homotopy_class: HomotopyClass) {
         self.classes
             .entry(homotopy_class.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(node_id);
         self.node_to_class.insert(node_id, homotopy_class);
     }
@@ -41,7 +47,7 @@ impl HomotopyClassIndex {
     pub fn get_nodes_in_class(&self, class_name: &str) -> Vec<u64> {
         self.classes
             .iter()
-            .find(|(class, _)| format!("{:?}", class).eq_ignore_ascii_case(class_name))
+            .find(|(class, _)| format!("{class:?}").eq_ignore_ascii_case(class_name))
             .map(|(_, nodes)| nodes.clone())
             .unwrap_or_default()
     }
@@ -58,7 +64,7 @@ impl HomotopyClassIndex {
         // Добавляем узел в новый класс
         self.classes
             .entry(new_class.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(node_id);
         self.node_to_class.insert(node_id, new_class);
     }
@@ -72,6 +78,12 @@ pub struct TopologicalFeatureIndex {
     centrality_index: HashMap<u64, f32>,
     /// Индекс по гомотопическим классам
     homotopy_index: HomotopyClassIndex,
+}
+
+impl Default for TopologicalFeatureIndex {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TopologicalFeatureIndex {
@@ -156,6 +168,12 @@ struct LevelIndex {
     neighbors: HashMap<u64, Vec<u64>>,
 }
 
+impl Default for ToroidalTopologyIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ToroidalTopologyIndex {
     pub fn new() -> Self {
         Self {
@@ -196,7 +214,8 @@ impl ToroidalTopologyIndex {
 
                 if distance <= threshold {
                     // Проверяем также топологические характеристики
-                    if let Some(candidate_node) = all_nodes.iter().find(|n| n.id == *candidate_id) {
+                    if let Some(_candidate_node) = all_nodes.iter().find(|n| n.id == *candidate_id)
+                    {
                         // Можно добавить дополнительные топологические проверки
                         results.push((*candidate_id, distance));
                     }
@@ -214,7 +233,7 @@ impl ToroidalTopologyIndex {
     /// Находит узлы с похожими топологическими характеристиками
     pub fn find_by_topological_similarity(
         &self,
-        target_node_id: u64,
+        _target_node_id: u64,
         similarity_metric: TopologicalSimilarity,
     ) -> Vec<u64> {
         let index = self.global_index.read().unwrap();
@@ -242,6 +261,12 @@ pub enum TopologicalSimilarity {
 /// Структура для управления всеми топологическими индексами
 pub struct TopologyManager {
     pub indices: HashMap<String, ToroidalTopologyIndex>,
+}
+
+impl Default for TopologyManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TopologyManager {

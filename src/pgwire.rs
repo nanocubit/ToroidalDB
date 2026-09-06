@@ -4,10 +4,10 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-/// PGWire server for PostgreSQL compatibility
+/// `PGWire` server for `PostgreSQL` compatibility
 ///
-/// This implementation provides basic PostgreSQL wire protocol support
-/// allowing connection from psql and other PostgreSQL clients.
+/// This implementation provides basic `PostgreSQL` wire protocol support
+/// allowing connection from psql and other `PostgreSQL` clients.
 pub struct PgWireServer {
     pub store: Arc<HybridPersistentStore>,
 }
@@ -19,23 +19,23 @@ impl PgWireServer {
 
     pub async fn start(&self, addr: &str) -> Result<()> {
         let listener = TcpListener::bind(addr).await?;
-        println!("🔌 PGWire server listening on {}", addr);
+        println!("🔌 PGWire server listening on {addr}");
 
         loop {
             let (mut stream, peer_addr) = listener.accept().await?;
-            println!("📡 PGWire connection from {}", peer_addr);
+            println!("📡 PGWire connection from {peer_addr}");
 
             let store = self.store.clone();
             tokio::spawn(async move {
                 if let Err(e) = handle_connection(&mut stream, store).await {
-                    eprintln!("Error handling connection from {}: {}", peer_addr, e);
+                    eprintln!("Error handling connection from {peer_addr}: {e}");
                 }
             });
         }
     }
 }
 
-/// Handle incoming PGWire connection
+/// Handle incoming `PGWire` connection
 async fn handle_connection(
     stream: &mut tokio::net::TcpStream,
     store: Arc<HybridPersistentStore>,
@@ -165,7 +165,7 @@ async fn send_query_result(
     Ok(())
 }
 
-/// PGWire handler for query execution
+/// `PGWire` handler for query execution
 pub struct PgWireHandler {
     store: Arc<HybridPersistentStore>,
 }

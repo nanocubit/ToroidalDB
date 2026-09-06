@@ -2,8 +2,8 @@
 //!
 //! Управление подписками на изменения данных с поддержкой WebSocket, Webhook, gRPC
 
-use crate::hybrid_storage::{HybridPersistentStore, Node};
-use crate::tql::ast::*;
+use crate::hybrid_storage::HybridPersistentStore;
+use crate::tql::ast::{EmitClause, PropertyValue, Query, Subscription, WhereCondition};
 use crate::tql::executor::QueryExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -76,16 +76,16 @@ impl SubscriptionWebSocketServer {
         loop {
             match listener.accept().await {
                 Ok((tcp_stream, peer_addr)) => {
-                    println!("WebSocket connection from {}", peer_addr);
+                    println!("WebSocket connection from {peer_addr}");
                     let manager = self.manager.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_ws_connection(tcp_stream, manager).await {
-                            eprintln!("WebSocket error from {}: {}", peer_addr, e);
+                            eprintln!("WebSocket error from {peer_addr}: {e}");
                         }
                     });
                 }
                 Err(e) => {
-                    eprintln!("WebSocket accept error: {}", e);
+                    eprintln!("WebSocket accept error: {e}");
                 }
             }
         }
@@ -321,7 +321,7 @@ impl SubscriptionManager {
         let mut subs = self.subscriptions.write().await;
 
         if subs.remove(subscription_id).is_none() {
-            return Err(format!("Subscription '{}' not found", subscription_id));
+            return Err(format!("Subscription '{subscription_id}' not found"));
         }
 
         // Удаляем WebSocket клиент если есть
@@ -341,7 +341,7 @@ impl SubscriptionManager {
 
         let sub = subs
             .get_mut(subscription_id)
-            .ok_or_else(|| format!("Subscription '{}' not found", subscription_id))?;
+            .ok_or_else(|| format!("Subscription '{subscription_id}' not found"))?;
 
         sub.status = SubscriptionStatus::Paused;
         Ok(())
@@ -353,7 +353,7 @@ impl SubscriptionManager {
 
         let sub = subs
             .get_mut(subscription_id)
-            .ok_or_else(|| format!("Subscription '{}' not found", subscription_id))?;
+            .ok_or_else(|| format!("Subscription '{subscription_id}' not found"))?;
 
         sub.status = SubscriptionStatus::Active;
         Ok(())
@@ -396,7 +396,7 @@ impl SubscriptionManager {
         let mut processed = 0;
         let mut errors = 0;
 
-        for (id, subscription) in subs.iter() {
+        for (id, subscription) in &subs {
             // Пропускаем неактивные подписки
             if subscription.status != SubscriptionStatus::Active {
                 continue;
@@ -417,7 +417,7 @@ impl SubscriptionManager {
                             .send_results(id, event.clone(), results, latency_ms)
                             .await
                         {
-                            eprintln!("Error sending results for subscription {}: {}", id, e);
+                            eprintln!("Error sending results for subscription {id}: {e}");
                             self.increment_error_count(id).await;
                             errors += 1;
                         } else {
@@ -427,7 +427,7 @@ impl SubscriptionManager {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error executing subscription query for {}: {}", id, e);
+                    eprintln!("Error executing subscription query for {id}: {e}");
                     self.increment_error_count(id).await;
                     errors += 1;
                 }
@@ -475,12 +475,13 @@ impl SubscriptionManager {
 
     /// Оценивает WHERE clause для события
     fn evaluate_where_clause(&self, where_clause: &WhereCondition, event: &ChangeEvent) -> bool {
-        match where_clause {
-            WhereCondition::PropertyFilter {
-                property,
-                operator,
-                value,
-            } => match event {
+        if let WhereCondition::PropertyFilter {
+            property,
+            operator,
+            value,
+        } = where_clause
+        {
+            match event {
                 ChangeEvent::NodeInserted { properties, .. }
                 | ChangeEvent::NodeUpdated {
                     new_properties: properties,
@@ -491,8 +492,7 @@ impl SubscriptionManager {
                     }
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
 
         true
@@ -587,7 +587,7 @@ impl SubscriptionManager {
         let subs = self.subscriptions.read().await;
         let subscription = subs
             .get(subscription_id)
-            .ok_or_else(|| format!("Subscription {} not found", subscription_id))?;
+            .ok_or_else(|| format!("Subscription {subscription_id} not found"))?;
 
         match &subscription.emit {
             EmitClause::Changes | EmitClause::Events => {
@@ -621,7 +621,7 @@ impl SubscriptionManager {
             .timeout(Duration::from_secs(5))
             .send()
             .await
-            .map_err(|e| format!("Webhook error: {}", e))?;
+            .map_err(|e| format!("Webhook error: {e}"))?;
 
         if !response.status().is_success() {
             return Err(format!("Webhook returned status: {}", response.status()));
@@ -708,7 +708,7 @@ impl SubscriptionManager {
     /// Создаёт подписку из TQL
     pub async fn create_from_tql(&self, tql: &str) -> Result<String, String> {
         let (_, query) =
-            crate::tql::parser::parse_query(tql).map_err(|e| format!("Parse error: {:?}", e))?;
+            crate::tql::parser::parse_query(tql).map_err(|e| format!("Parse error: {e:?}"))?;
 
         let subscription = Subscription {
             id: None,
@@ -723,13 +723,13 @@ impl SubscriptionManager {
     /// Экспортирует подписки
     pub async fn export_subscriptions(&self) -> Result<String, String> {
         let subs = self.subscriptions.read().await;
-        serde_json::to_string_pretty(&*subs).map_err(|e| format!("Export error: {}", e))
+        serde_json::to_string_pretty(&*subs).map_err(|e| format!("Export error: {e}"))
     }
 
     /// Импортирует подписки
     pub async fn import_subscriptions(&self, json: &str) -> Result<(), String> {
         let subs: HashMap<String, ActiveSubscription> =
-            serde_json::from_str(json).map_err(|e| format!("Import error: {}", e))?;
+            serde_json::from_str(json).map_err(|e| format!("Import error: {e}"))?;
 
         let mut current_subs = self.subscriptions.write().await;
         for (id, sub) in subs {

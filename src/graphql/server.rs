@@ -1,4 +1,4 @@
-use super::schema::*;
+use super::schema::ToroidalSchema;
 
 use async_graphql::{Request as GqlRequest, Response as GqlResponse};
 use axum::{
@@ -80,9 +80,9 @@ pub async fn start_graphql_server(
     let state = Arc::new(RwLock::new(GraphQLState::new(schema)));
     let app = create_routes(state);
 
-    let addr = format!("{}:{}", host, port);
-    println!("GraphQL server starting on http://{}/graphql", addr);
-    println!("Playground available at http://{}/graphql", addr);
+    let addr = format!("{host}:{port}");
+    println!("GraphQL server starting on http://{addr}/graphql");
+    println!("Playground available at http://{addr}/graphql");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;

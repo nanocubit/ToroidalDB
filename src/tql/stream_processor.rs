@@ -3,12 +3,14 @@
 //! Обработка потоков данных с оконными функциями, watermark и CDC
 
 use crate::hybrid_storage::HybridPersistentStore;
-use crate::tql::ast::*;
-use crate::tql::executor::QueryExecutor;
+use crate::tql::ast::{
+    AggregationField, AggregationFunction, OrderByClause, PropertyValue, Query, StreamDef,
+    StreamSchema, StreamWindowSpec, WhereCondition,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, RwLock};
 
 /// Stream Processor
@@ -140,7 +142,7 @@ impl StreamProcessor {
 
         let stream = streams
             .get_mut(stream_name)
-            .ok_or_else(|| format!("Stream '{}' not found", stream_name))?;
+            .ok_or_else(|| format!("Stream '{stream_name}' not found"))?;
 
         // Добавляем в буфер
         stream.buffer.push_back(record.clone());
@@ -192,10 +194,10 @@ impl StreamProcessor {
         let filtered = self.apply_filters(&records, &stream_query.filter)?;
 
         // Применяем GROUP BY
-        let grouped = if !query.group_by.is_empty() {
-            self.apply_group_by(&filtered, &query.group_by, &query.aggregation_fields)?
-        } else {
+        let grouped = if query.group_by.is_empty() {
             self.records_to_values(&filtered)
+        } else {
+            self.apply_group_by(&filtered, &query.group_by, &query.aggregation_fields)?
         };
 
         // Применяем HAVING
@@ -347,16 +349,16 @@ impl StreamProcessor {
         // Группируем записи
         for record in records {
             let key = self.create_group_key(record, group_by);
-            groups.entry(key).or_insert_with(Vec::new).push(record);
+            groups.entry(key).or_default().push(record);
         }
 
         // Вычисляем агрегации для каждой группы
         let mut results = Vec::new();
-        for (key, group_records) in groups {
+        for (_key, group_records) in groups {
             let mut row = serde_json::Map::new();
 
             // Добавляем ключи группы
-            for (i, field) in group_by.iter().enumerate() {
+            for (_i, field) in group_by.iter().enumerate() {
                 if let Some(first) = group_records.first() {
                     if let Some(value) = first.data.get(field) {
                         row.insert(field.clone(), value.clone());
@@ -384,7 +386,7 @@ impl StreamProcessor {
     fn create_group_key(&self, record: &StreamRecord, fields: &[String]) -> String {
         let values: Vec<String> = fields
             .iter()
-            .filter_map(|field| record.data.get(field).map(|v| v.to_string()))
+            .filter_map(|field| record.data.get(field).map(std::string::ToString::to_string))
             .collect();
         values.join("|")
     }
@@ -402,14 +404,14 @@ impl StreamProcessor {
             AggregationFunction::Sum(field) => {
                 let sum: f64 = records
                     .iter()
-                    .filter_map(|r| r.data.get(field).and_then(|v| v.as_f64()))
+                    .filter_map(|r| r.data.get(field).and_then(serde_json::Value::as_f64))
                     .sum();
                 serde_json::json!(sum)
             }
             AggregationFunction::Avg(field) => {
                 let values: Vec<f64> = records
                     .iter()
-                    .filter_map(|r| r.data.get(field).and_then(|v| v.as_f64()))
+                    .filter_map(|r| r.data.get(field).and_then(serde_json::Value::as_f64))
                     .collect();
                 if values.is_empty() {
                     serde_json::Value::Null
@@ -420,8 +422,8 @@ impl StreamProcessor {
             AggregationFunction::Min(field) => {
                 let min = records
                     .iter()
-                    .filter_map(|r| r.data.get(field).and_then(|v| v.as_f64()))
-                    .fold(f64::INFINITY, |a, b| a.min(b));
+                    .filter_map(|r| r.data.get(field).and_then(serde_json::Value::as_f64))
+                    .fold(f64::INFINITY, f64::min);
                 if min == f64::INFINITY {
                     serde_json::Value::Null
                 } else {
@@ -431,8 +433,8 @@ impl StreamProcessor {
             AggregationFunction::Max(field) => {
                 let max = records
                     .iter()
-                    .filter_map(|r| r.data.get(field).and_then(|v| v.as_f64()))
-                    .fold(f64::NEG_INFINITY, |a, b| a.max(b));
+                    .filter_map(|r| r.data.get(field).and_then(serde_json::Value::as_f64))
+                    .fold(f64::NEG_INFINITY, f64::max);
                 if max == f64::NEG_INFINITY {
                     serde_json::Value::Null
                 } else {
@@ -479,11 +481,11 @@ impl StreamProcessor {
         results.sort_by(|a, b| {
             let val_a = a
                 .get(&order_by.field)
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
             let val_b = b
                 .get(&order_by.field)
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
 
             if order_by.ascending {
@@ -510,7 +512,7 @@ impl StreamProcessor {
         stream: &mut StreamState,
     ) -> Result<(), String> {
         // Проверяем tumbling windows
-        for (window_id, window) in stream.windows.iter_mut() {
+        for (window_id, window) in &mut stream.windows {
             if !window.is_triggered && self.should_trigger_window(window) {
                 // Trigger window
                 let results = self.trigger_window(window).await?;

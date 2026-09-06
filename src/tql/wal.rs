@@ -5,9 +5,9 @@
 
 use crate::hybrid_storage::Node;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// WAL entry types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,7 +94,7 @@ impl Wal {
     pub fn append(&self, entry: &WalEntry) -> Result<(), String> {
         let mut writer = self.writer.lock().unwrap();
         let line = serde_json::to_string(entry).map_err(|e| e.to_string())?;
-        writeln!(writer, "{}", line).map_err(|e| e.to_string())?;
+        writeln!(writer, "{line}").map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())?;
         Ok(())
     }

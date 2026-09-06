@@ -1,6 +1,6 @@
-use crate::index::{IndexConfig, MetricType, VectorIndex};
+use crate::index::VectorIndex;
 use crate::topology::topological_indices::{HomotopyClassIndex, TopologicalFeatureIndex};
-use crate::tql::functions::{cosine_similarity, euclidean_distance, manhattan_distance, Vector};
+use crate::tql::functions::{cosine_similarity, Vector};
 use std::collections::HashMap;
 
 pub struct HybridIndex {
@@ -107,7 +107,7 @@ impl HybridIndex {
 
             if let Some(ref topo_idx) = self.topological_index {
                 if let Some(ref features) = filters.topological_features {
-                    for (id, candidate) in candidates.iter_mut() {
+                    for (id, candidate) in &mut candidates {
                         if let Some(feature_vec) = topo_idx.get_features(*id as u64) {
                             let similarity =
                                 self.compute_feature_similarity(features, &feature_vec);

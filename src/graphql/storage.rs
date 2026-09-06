@@ -1,4 +1,6 @@
-use super::schema::*;
+use super::schema::{
+    EdgeStorage, GqlEdge, GqlNode, GraphStorage, NodeFilterInput, NodeStorage, TopologyMetrics,
+};
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -6,6 +8,12 @@ use tokio::sync::RwLock;
 
 pub struct MockNodeStorage {
     nodes: RwLock<Vec<GqlNode>>,
+}
+
+impl Default for MockNodeStorage {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockNodeStorage {
@@ -24,7 +32,7 @@ impl MockNodeStorage {
 impl NodeStorage for MockNodeStorage {
     async fn get_node(&self, id: &str) -> Option<GqlNode> {
         let nodes = self.nodes.read().await;
-        nodes.iter().find(|n| n.id.to_string() == id).cloned()
+        nodes.iter().find(|n| n.id == id).cloned()
     }
 
     async fn list_nodes(
@@ -70,7 +78,7 @@ impl NodeStorage for MockNodeStorage {
     ) -> Option<GqlNode> {
         let mut nodes = self.nodes.write().await;
 
-        if let Some(node) = nodes.iter_mut().find(|n| n.id.to_string() == id) {
+        if let Some(node) = nodes.iter_mut().find(|n| n.id == id) {
             if let Some(l) = label {
                 node.label = l;
             }
@@ -90,7 +98,7 @@ impl NodeStorage for MockNodeStorage {
     async fn delete_node(&self, id: &str) -> bool {
         let mut nodes = self.nodes.write().await;
         let len_before = nodes.len();
-        nodes.retain(|n| n.id.to_string() != id);
+        nodes.retain(|n| n.id != id);
         nodes.len() < len_before
     }
 
@@ -124,6 +132,12 @@ pub struct MockEdgeStorage {
     edges: RwLock<Vec<GqlEdge>>,
 }
 
+impl Default for MockEdgeStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockEdgeStorage {
     pub fn new() -> Self {
         MockEdgeStorage {
@@ -140,7 +154,7 @@ impl MockEdgeStorage {
 impl EdgeStorage for MockEdgeStorage {
     async fn get_edge(&self, id: &str) -> Option<GqlEdge> {
         let edges = self.edges.read().await;
-        edges.iter().find(|e| e.id.to_string() == id).cloned()
+        edges.iter().find(|e| e.id == id).cloned()
     }
 
     async fn list_edges(
@@ -154,12 +168,8 @@ impl EdgeStorage for MockEdgeStorage {
         edges
             .iter()
             .filter(|e| {
-                let from_match = from_node_id
-                    .map(|f| e.from_node_id.to_string() == f)
-                    .unwrap_or(true);
-                let to_match = to_node_id
-                    .map(|t| e.to_node_id.to_string() == t)
-                    .unwrap_or(true);
+                let from_match = from_node_id.map_or(true, |f| e.from_node_id == f);
+                let to_match = to_node_id.map_or(true, |t| e.to_node_id == t);
                 from_match && to_match
             })
             .take(limit)
@@ -195,13 +205,19 @@ impl EdgeStorage for MockEdgeStorage {
     async fn delete_edge(&self, id: &str) -> bool {
         let mut edges = self.edges.write().await;
         let len_before = edges.len();
-        edges.retain(|e| e.id.to_string() != id);
+        edges.retain(|e| e.id != id);
         edges.len() < len_before
     }
 }
 
 pub struct MockGraphStorage {
     metrics: RwLock<TopologyMetrics>,
+}
+
+impl Default for MockGraphStorage {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockGraphStorage {

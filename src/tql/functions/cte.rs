@@ -75,10 +75,10 @@ impl CteExecutor {
     fn apply_cte_context(&self, _query: &mut Query) {}
 
     fn execute_query(&self, query: &Query) -> Result<Vec<serde_json::Value>, String> {
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("Runtime error: {}", e))?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("Runtime error: {e}"))?;
         let results = rt
             .block_on(QueryExecutor::execute_query(&self.store, query.clone()))
-            .map_err(|e| format!("CTE query execution failed: {}", e))?;
+            .map_err(|e| format!("CTE query execution failed: {e}"))?;
         Ok(results.into_iter().map(|r| r.properties.clone()).collect())
     }
 
@@ -148,10 +148,10 @@ impl RecursiveQueryExecutor {
     }
 
     fn execute_query(&self, query: &Query) -> Result<Vec<serde_json::Value>, String> {
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("Runtime error: {}", e))?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("Runtime error: {e}"))?;
         let results = rt
             .block_on(QueryExecutor::execute_query(&self.store, query.clone()))
-            .map_err(|e| format!("CTE query execution failed: {}", e))?;
+            .map_err(|e| format!("CTE query execution failed: {e}"))?;
         Ok(results.into_iter().map(|r| r.properties.clone()).collect())
     }
 }

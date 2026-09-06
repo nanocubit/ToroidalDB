@@ -96,10 +96,10 @@ impl AuthService {
         roles: Vec<String>,
     ) -> Result<String, String> {
         let password_hash =
-            hash(password, DEFAULT_COST).map_err(|e| format!("Password hashing error: {}", e))?;
+            hash(password, DEFAULT_COST).map_err(|e| format!("Password hashing error: {e}"))?;
 
         let user_id = Uuid::new_v4().to_string();
-        let mut user = User {
+        let user = User {
             id: user_id.clone(),
             username: username.clone(),
             password_hash,
@@ -173,7 +173,7 @@ impl AuthService {
             &claims,
             &EncodingKey::from_secret(self.jwt_secret.as_ref()),
         )
-        .map_err(|e| format!("JWT encoding error: {}", e))?;
+        .map_err(|e| format!("JWT encoding error: {e}"))?;
 
         Ok(TokenResponse {
             access_token: token,
@@ -189,7 +189,7 @@ impl AuthService {
             &DecodingKey::from_secret(self.jwt_secret.as_ref()),
             &validation,
         )
-        .map_err(|e| format!("JWT decoding error: {}", e))?;
+        .map_err(|e| format!("JWT decoding error: {e}"))?;
 
         Ok(token_data.claims)
     }

@@ -1,15 +1,14 @@
-//! # Embedding Service для ToroidalDB
+//! # Embedding Service для `ToroidalDB`
 //!
 //! Поддержка модели multilingual-e5-small для мультиязычного семантического поиска
 //!
 //! ## Характеристики модели:
-//! - Размерность: 384 (совместимо с MatryoshkaDim::D384)
+//! - Размерность: 384 (совместимо с `MatryoshkaDim::D384`)
 //! - Языки: 100+ (включая русский, китайский, арабский и др.)
 //! - Кросс-языковой поиск: запрос на одном языке → поиск на другом
 //! - Производительность: ~100-500 документов/сек на CPU
 
-use anyhow::{Context, Result};
-use ndarray::{Array1, Array2};
+use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -71,7 +70,7 @@ pub struct EmbeddingService {
 }
 
 impl EmbeddingService {
-    /// Создаёт новый EmbeddingService
+    /// Создаёт новый `EmbeddingService`
     pub fn new(model: EmbeddingModel) -> Self {
         Self {
             model,
@@ -150,7 +149,7 @@ impl EmbeddingService {
         let tokens = self.tokenize(text);
 
         // Создаём входной тензор
-        let input_ids = tokens.iter().map(|&t| t as i64).collect::<Vec<_>>();
+        let _input_ids = tokens.iter().map(|&t| i64::from(t)).collect::<Vec<_>>();
 
         // В production здесь будет вызов ONNX модели
         // Для демонстрации используем детерминированную генерацию на основе токенов
@@ -180,7 +179,7 @@ impl EmbeddingService {
         // Используем комбинацию hash и символьных признаков
         for (i, byte) in text.bytes().enumerate() {
             let pos = i % embedding.len();
-            embedding[pos] += (byte as f32) / 256.0;
+            embedding[pos] += f32::from(byte) / 256.0;
         }
 
         // Добавляем bigram признаки
@@ -204,7 +203,7 @@ impl EmbeddingService {
             .map(|word| {
                 let mut hash = 0u32;
                 for byte in word.bytes() {
-                    hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
+                    hash = hash.wrapping_mul(31).wrapping_add(u32::from(byte));
                 }
                 // Special tokens: [CLS]=101, [SEP]=102, [PAD]=0, [UNK]=100
                 (hash % 30000) + 1000

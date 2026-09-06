@@ -50,21 +50,21 @@ impl BackupManager {
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| format!("Time error: {}", e))?
+            .map_err(|e| format!("Time error: {e}"))?
             .as_secs();
 
-        let backup_id = format!("backup_{}", now);
+        let backup_id = format!("backup_{now}");
         let backup_path = format!("{}/{}.jsonl", self.backup_dir, backup_id);
 
         let all_nodes = store
             .get_all()
-            .map_err(|e| format!("Failed to get all nodes: {}", e))?;
+            .map_err(|e| format!("Failed to get all nodes: {e}"))?;
 
         let node_count = all_nodes.len();
 
         // Simple JSONL format - one node per line
         let mut file = std::fs::File::create(&backup_path)
-            .map_err(|e| format!("Failed to create backup file: {}", e))?;
+            .map_err(|e| format!("Failed to create backup file: {e}"))?;
 
         // Write header
         let header = serde_json::json!({
@@ -77,27 +77,23 @@ impl BackupManager {
             "HEADER:{}",
             serde_json::to_string(&header).map_err(|e| e.to_string())?
         )
-        .map_err(|e| format!("Failed to write header: {}", e))?;
+        .map_err(|e| format!("Failed to write header: {e}"))?;
 
         // Write each node as JSONL
         for node in all_nodes {
             let line = serde_json::to_string(&node)
-                .map_err(|e| format!("Failed to serialize node: {}", e))?;
-            writeln!(&mut file, "NODE:{}", line)
-                .map_err(|e| format!("Failed to write node: {}", e))?;
+                .map_err(|e| format!("Failed to serialize node: {e}"))?;
+            writeln!(&mut file, "NODE:{line}").map_err(|e| format!("Failed to write node: {e}"))?;
         }
 
         file.sync_all()
-            .map_err(|e| format!("Failed to sync file: {}", e))?;
+            .map_err(|e| format!("Failed to sync file: {e}"))?;
 
         let size = std::fs::metadata(&backup_path)
-            .map_err(|e| format!("Failed to get metadata: {}", e))?
+            .map_err(|e| format!("Failed to get metadata: {e}"))?
             .len();
 
-        println!(
-            "✅ Created backup {} with {} nodes ({} bytes)",
-            backup_id, node_count, size
-        );
+        println!("✅ Created backup {backup_id} with {node_count} nodes ({size} bytes)");
 
         Ok(backup_id)
     }
@@ -110,14 +106,14 @@ impl BackupManager {
         use tokio::time::{sleep, Duration};
 
         loop {
-            sleep(Duration::from_secs(interval_hours as u64 * 3600)).await;
+            sleep(Duration::from_secs(u64::from(interval_hours) * 3600)).await;
 
-            match self.create_backup(&*store).await {
+            match self.create_backup(&store).await {
                 Ok(backup_id) => {
-                    println!("🔄 Scheduled backup completed: {}", backup_id);
+                    println!("🔄 Scheduled backup completed: {backup_id}");
                 }
                 Err(e) => {
-                    eprintln!("❌ Failed to create scheduled backup: {}", e);
+                    eprintln!("❌ Failed to create scheduled backup: {e}");
                 }
             }
         }
@@ -131,42 +127,40 @@ impl BackupManager {
         let backup_path = format!("{}/{}.jsonl", self.backup_dir, backup_id);
 
         if !Path::new(&backup_path).exists() {
-            return Err(format!("Backup {} not found", backup_path));
+            return Err(format!("Backup {backup_path} not found"));
         }
 
-        let file = std::fs::File::open(&backup_path)
-            .map_err(|e| format!("Failed to open backup: {}", e))?;
+        let file =
+            std::fs::File::open(&backup_path).map_err(|e| format!("Failed to open backup: {e}"))?;
 
         let reader = std::io::BufReader::new(file);
 
         let mut restored_count = 0;
 
         for line in reader.lines() {
-            let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+            let line = line.map_err(|e| format!("Failed to read line: {e}"))?;
 
             if line.trim().is_empty() {
                 continue;
             }
 
-            if line.starts_with("HEADER:") {
-                let header_str = &line[7..];
+            if let Some(header_str) = line.strip_prefix("HEADER:") {
                 let header: serde_json::Value = serde_json::from_str(header_str)
-                    .map_err(|e| format!("Failed to parse header: {}", e))?;
-                println!("📋 Restoring from backup: {:?}", header);
-            } else if line.starts_with("NODE:") {
-                let node_str = &line[5..];
+                    .map_err(|e| format!("Failed to parse header: {e}"))?;
+                println!("📋 Restoring from backup: {header:?}");
+            } else if let Some(node_str) = line.strip_prefix("NODE:") {
                 let node: Node = serde_json::from_str(node_str)
-                    .map_err(|e| format!("Failed to parse node: {}", e))?;
+                    .map_err(|e| format!("Failed to parse node: {e}"))?;
 
                 store
                     .insert(node)
-                    .map_err(|e| format!("Failed to insert node: {}", e))?;
+                    .map_err(|e| format!("Failed to insert node: {e}"))?;
 
                 restored_count += 1;
             }
         }
 
-        println!("✅ Restored {} nodes from backup", restored_count);
+        println!("✅ Restored {restored_count} nodes from backup");
         Ok(())
     }
 
@@ -178,24 +172,23 @@ impl BackupManager {
         }
 
         let entries = std::fs::read_dir(&self.backup_dir)
-            .map_err(|e| format!("Failed to read backup directory: {}", e))?;
+            .map_err(|e| format!("Failed to read backup directory: {e}"))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
             let path = entry.path();
 
             if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
                 let file = std::fs::File::open(&path)
-                    .map_err(|e| format!("Failed to open backup: {}", e))?;
+                    .map_err(|e| format!("Failed to open backup: {e}"))?;
                 let reader = std::io::BufReader::new(file);
 
                 for line in reader.lines() {
-                    let line = line.map_err(|e| format!("Failed to read: {}", e))?;
+                    let line = line.map_err(|e| format!("Failed to read: {e}"))?;
 
-                    if line.starts_with("HEADER:") {
-                        let header_str = &line[7..];
+                    if let Some(header_str) = line.strip_prefix("HEADER:") {
                         let header: serde_json::Value = serde_json::from_str(header_str)
-                            .map_err(|e| format!("Failed to parse: {}", e))?;
+                            .map_err(|e| format!("Failed to parse: {e}"))?;
 
                         let info = BackupInfo {
                             id: path
@@ -205,14 +198,13 @@ impl BackupManager {
                                 .to_string(),
                             created_at: header
                                 .get("created_at")
-                                .and_then(|v| v.as_u64())
+                                .and_then(serde_json::Value::as_u64)
                                 .unwrap_or(0),
                             size_bytes: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
                             node_count: header
                                 .get("node_count")
-                                .and_then(|v| v.as_u64())
-                                .map(|u| u as usize)
-                                .unwrap_or(0),
+                                .and_then(serde_json::Value::as_u64)
+                                .map_or(0, |u| u as usize),
                             metadata: header.clone(),
                         };
                         backups.push(info);
@@ -231,11 +223,10 @@ impl BackupManager {
         let backup_path = format!("{}/{}.jsonl", self.backup_dir, backup_id);
 
         if !Path::new(&backup_path).exists() {
-            return Err(format!("Backup {} not found", backup_id));
+            return Err(format!("Backup {backup_id} not found"));
         }
 
-        std::fs::remove_file(&backup_path)
-            .map_err(|e| format!("Failed to delete backup: {}", e))?;
+        std::fs::remove_file(&backup_path).map_err(|e| format!("Failed to delete backup: {e}"))?;
 
         Ok(())
     }
@@ -245,7 +236,7 @@ impl BackupManager {
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| format!("Time error: {}", e))?
+            .map_err(|e| format!("Time error: {e}"))?
             .as_secs();
 
         let cutoff = now - (self.retention_days as u64 * 24 * 60 * 60);

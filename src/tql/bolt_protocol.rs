@@ -1,8 +1,8 @@
-//! Bolt Wire Protocol — полноценная реализация с PackStream парсером.
+//! Bolt Wire Protocol — полноценная реализация с `PackStream` парсером.
 //!
-//! Bolt v5.x — бинарный протокол Neo4j. Использует PackStream для сериализации.
+//! Bolt v5.x — бинарный протокол Neo4j. Использует `PackStream` для сериализации.
 //! Поддерживает: HELLO, RUN, PULL, BEGIN, COMMIT, ROLLBACK, RESET, GOODBYE, DISCARD.
-//! Query execution через GQL Bridge (GQL → TQL → TqlEngine).
+//! Query execution через GQL Bridge (GQL → TQL → `TqlEngine`).
 
 use crate::hybrid_storage::HybridPersistentStore;
 use crate::tql::gql_bridge::GqlBridge;
@@ -42,16 +42,16 @@ impl BoltServer {
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         let addr = format!("{}:{}", self.config.host, self.config.port);
         let listener = TcpListener::bind(&addr).await?;
-        println!("🔌 Bolt protocol listening on {} (Neo4j-compatible)", addr);
+        println!("🔌 Bolt protocol listening on {addr} (Neo4j-compatible)");
 
         let bridge = Arc::new(GqlBridge::new(self.store.clone()));
 
         loop {
-            let (stream, peer) = listener.accept().await?;
+            let (stream, _peer) = listener.accept().await?;
             let bridge = bridge.clone();
             tokio::spawn(async move {
                 if let Err(e) = handle_bolt_connection(stream, bridge).await {
-                    eprintln!("Bolt connection error: {}", e);
+                    eprintln!("Bolt connection error: {e}");
                 }
             });
         }
@@ -68,8 +68,8 @@ async fn handle_bolt_connection(
     stream.write_all(&BOLT_VERSION).await?;
 
     // === PackStream Reader/Writer ===
-    let mut reader = PackStreamReader::new();
-    let mut writer = PackStreamWriter;
+    let reader = PackStreamReader::new();
+    let writer = PackStreamWriter;
 
     // === Main loop ===
     loop {
@@ -191,7 +191,7 @@ impl PackStreamReader {
         let marker = data[*i];
         *i += 1;
 
-        let len = if marker >= 0x80 && marker <= 0x9F {
+        let len = if (0x80..=0x9F).contains(&marker) {
             // Tiny string: 0x80 + length
             (marker - 0x80) as usize
         } else if marker == 0xD0 {

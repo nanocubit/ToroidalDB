@@ -1,7 +1,6 @@
 use crate::hybrid_storage::{Edge, HybridPersistentStore as PersistentStore, Node};
-use crate::tql::ast::{NodePattern, PropertyValue, Transaction, TransactionOperation};
+use crate::tql::ast::{PropertyValue, Transaction, TransactionOperation};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub struct TransactionManager;
 
@@ -23,7 +22,7 @@ impl TransactionManager {
                     };
                     match store.insert(new_node.clone()) {
                         Ok(_) => {}
-                        Err(e) => return Err(format!("Failed to create node: {}", e)),
+                        Err(e) => return Err(format!("Failed to create node: {e}")),
                     }
                     temp_store.push(new_node);
                 }
@@ -54,7 +53,7 @@ impl TransactionManager {
                                 return Err("Failed to update node".to_string());
                             }
                         } else {
-                            return Err(format!("Node with id {} not found", node_id));
+                            return Err(format!("Node with id {node_id} not found"));
                         }
                     }
                 }
@@ -66,7 +65,7 @@ impl TransactionManager {
                     {
                         let node_id = *id as u64;
                         let all_nodes = store.get_all().map_err(|e| {
-                            format!("Failed to get all nodes for edge cleanup: {}", e)
+                            format!("Failed to get all nodes for edge cleanup: {e}")
                         })?;
                         for other_node in all_nodes {
                             if other_node.edges.iter().any(|e| e.target_id == node_id) {
@@ -74,16 +73,14 @@ impl TransactionManager {
                                 updated_node.edges.retain(|e| e.target_id != node_id);
                                 store
                                     .update_node(other_node.id, updated_node)
-                                    .map_err(|e| {
-                                        format!("Failed to remove incoming edges: {}", e)
-                                    })?;
+                                    .map_err(|e| format!("Failed to remove incoming edges: {e}"))?;
                             }
                         }
                         let removed = store
                             .remove(node_id)
-                            .map_err(|e| format!("Failed to delete node {}: {}", node_id, e))?;
+                            .map_err(|e| format!("Failed to delete node {node_id}: {e}"))?;
                         if !removed {
-                            return Err(format!("Node {} not found for deletion", node_id));
+                            return Err(format!("Node {node_id} not found for deletion"));
                         }
                     }
                 }
@@ -104,10 +101,10 @@ impl TransactionManager {
                             }
                         }
                         Ok(None) => {
-                            return Err(format!("Source node {} not found", source_id_num));
+                            return Err(format!("Source node {source_id_num} not found"));
                         }
                         Err(e) => {
-                            return Err(format!("Error getting source node: {}", e));
+                            return Err(format!("Error getting source node: {e}"));
                         }
                     }
                 }
@@ -135,10 +132,10 @@ impl TransactionManager {
         store: &PersistentStore,
         savepoint: &HashMap<u64, Node>,
     ) -> Result<(), String> {
-        for (_, node) in savepoint {
+        for node in savepoint.values() {
             store
                 .insert(node.clone())
-                .map_err(|e| format!("Failed to restore savepoint: {}", e))?;
+                .map_err(|e| format!("Failed to restore savepoint: {e}"))?;
         }
         Ok(())
     }

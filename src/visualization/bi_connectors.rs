@@ -2,17 +2,16 @@
 //!
 //! Предоставляет интерфейсы для подключения к популярным BI-инструментам:
 //! - Tableau
-//! - PowerBI
+//! - `PowerBI`
 //! - Grafana
 //! - Metabase
 //! - Apache Superset
 
 use crate::storage::Node;
-use crate::tql::ast::Query;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum BiConnectorType {
@@ -67,7 +66,7 @@ impl BiConnector {
         })
     }
 
-    /// Подключение к PowerBI
+    /// Подключение к `PowerBI`
     fn connect_to_powerbi(&self) -> Result<BiConnection, String> {
         // В реальной системе здесь будет подключение к PowerBI
         Ok(BiConnection {
@@ -138,7 +137,7 @@ impl BiConnector {
     }
 
     /// Выполняет запрос и возвращает результаты
-    fn execute_query(&self, query: &str) -> Result<Vec<Node>, String> {
+    fn execute_query(&self, _query: &str) -> Result<Vec<Node>, String> {
         // В реальной системе здесь будет выполнение TQL-запроса
         // Пока возвращаем все узлы
         self.store.get_all().map_err(|e| e.to_string())
@@ -228,8 +227,8 @@ impl BiConnector {
                 match cell {
                     Value::String(s) => {
                         // Экранируем кавычки и добавляем кавычки
-                        let escaped = s.replace("\"", "\"\"");
-                        csv.push_str(&format!("\"{}\"", escaped));
+                        let escaped = s.replace('"', "\"\"");
+                        csv.push_str(&format!("\"{escaped}\""));
                     }
                     Value::Number(n) => {
                         csv.push_str(&n.to_string());
@@ -255,7 +254,7 @@ impl BiConnector {
     /// Экспортирует данные в формат JSON
     pub fn export_json(&self, query: &str) -> Result<String, String> {
         let bi_data = self.export_for_bi(query)?;
-        serde_json::to_string(&bi_data).map_err(|e| format!("Failed to serialize BI data: {}", e))
+        serde_json::to_string(&bi_data).map_err(|e| format!("Failed to serialize BI data: {e}"))
     }
 
     /// Экспортирует данные в формат Parquet (для больших объемов)
@@ -312,8 +311,7 @@ impl BiConnector {
                 let most_common_type = type_counts
                     .into_iter()
                     .max_by_key(|(_, count)| *count)
-                    .map(|(type_name, _)| type_name)
-                    .unwrap_or_else(|| "unknown".to_string());
+                    .map_or_else(|| "unknown".to_string(), |(type_name, _)| type_name);
 
                 (key, most_common_type)
             })
@@ -323,7 +321,7 @@ impl BiConnector {
             node_count: all_nodes.len(),
             property_types: simplified_property_types,
             node_labels: node_labels.into_iter().collect(),
-            vector_dimension: all_nodes.first().map(|n| n.vector.len()).unwrap_or(0),
+            vector_dimension: all_nodes.first().map_or(0, |n| n.vector.len()),
             has_edges: all_nodes.iter().any(|n| !n.edges.is_empty()),
         })
     }
@@ -388,7 +386,7 @@ impl TableauConnector {
             let score = node
                 .properties
                 .get("score")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
 
             csv.push_str(&format!(
@@ -425,8 +423,16 @@ impl GrafanaConnector {
 
         // Создаем временную серию для каждого узла (если у него есть временные метки)
         for node in nodes {
-            if let Some(timestamp) = node.properties.get("timestamp").and_then(|v| v.as_f64()) {
-                if let Some(value) = node.properties.get("value").and_then(|v| v.as_f64()) {
+            if let Some(timestamp) = node
+                .properties
+                .get("timestamp")
+                .and_then(serde_json::Value::as_f64)
+            {
+                if let Some(value) = node
+                    .properties
+                    .get("value")
+                    .and_then(serde_json::Value::as_f64)
+                {
                     series.push(serde_json::json!([
                         [value, (timestamp * 1000.0) as u64] // Grafana ожидает миллисекунды
                     ]));

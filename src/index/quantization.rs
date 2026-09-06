@@ -89,9 +89,9 @@ impl Quantizer {
             QuantizedVector::Scalar { data, min, max } => {
                 self.dot_scalar_asymmetric(query, data, *min, *max)
             }
-            QuantizedVector::Binary { data, dim } => {
+            QuantizedVector::Binary { data, dim: _ } => {
                 // Binary: use Hamming distance directly (already asymmetric)
-                hamming_distance_u64(data, query) as f32
+                hamming_distance_u64(data, query)
             }
             QuantizedVector::Product {
                 data,
@@ -167,7 +167,7 @@ impl Quantizer {
         {
             let mut dot = 0.0f32;
             for j in 0..n {
-                let d_val = data[j] as f32 * scale + min;
+                let d_val = f32::from(data[j]) * scale + min;
                 dot += query[j] * d_val;
             }
             let na: f32 = query.iter().map(|x| x * x).sum();
@@ -185,7 +185,7 @@ impl Quantizer {
         mins: &[f32],
         maxs: &[f32],
     ) -> f32 {
-        let subdim = (query.len() + subvectors - 1) / subvectors;
+        let subdim = query.len().div_ceil(subvectors);
         let mut dot = 0.0f32;
         let mut sq = 0.0f32;
 
@@ -200,7 +200,7 @@ impl Quantizer {
             for j in start..end {
                 let idx = j; // flat index
                 let d_val = if idx < data.len() {
-                    data[idx] as f32 * scale + min
+                    f32::from(data[idx]) * scale + min
                 } else {
                     0.0
                 };
@@ -218,13 +218,13 @@ impl Quantizer {
             QuantizationType::None => "1x",
             QuantizationType::Scalar => "4x",
             QuantizationType::Binary => "32x",
-            QuantizationType::Product { subvectors } => "16x",
+            QuantizationType::Product { subvectors: _ } => "16x",
         }
     }
 
     fn quantize_scalar(&self, vector: &[f32]) -> QuantizedVector {
-        let min = vector.iter().cloned().fold(f32::MAX, f32::min);
-        let max = vector.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = vector.iter().copied().fold(f32::MAX, f32::min);
+        let max = vector.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let range = max - min;
         let data: Vec<u8> = if range > 1e-6 {
             vector
@@ -239,7 +239,7 @@ impl Quantizer {
 
     fn quantize_binary(&self, vector: &[f32]) -> QuantizedVector {
         let dim = vector.len();
-        let words = (dim + 63) / 64;
+        let words = dim.div_ceil(64);
         let mut data = vec![0u64; words];
         for (i, &v) in vector.iter().enumerate() {
             if v > 0.0 {
@@ -251,7 +251,7 @@ impl Quantizer {
 
     fn quantize_product(&self, vector: &[f32], subvectors: usize) -> QuantizedVector {
         let dim = vector.len();
-        let subdim = (dim + subvectors - 1) / subvectors;
+        let subdim = dim.div_ceil(subvectors);
         let mut data = Vec::with_capacity(dim);
         let mut mins = Vec::with_capacity(subvectors);
         let mut maxs = Vec::with_capacity(subvectors);
@@ -260,8 +260,8 @@ impl Quantizer {
             let start = s * subdim;
             let end = (start + subdim).min(dim);
             let slice = &vector[start..end];
-            let min = slice.iter().cloned().fold(f32::MAX, f32::min);
-            let max = slice.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let min = slice.iter().copied().fold(f32::MAX, f32::min);
+            let max = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let range = max - min;
             for &v in slice {
                 let q = if range > 1e-6 {
@@ -303,7 +303,7 @@ fn dequantize_scalar(data: &[u8], min: f32, max: f32) -> Vec<f32> {
     data.iter()
         .map(|&b| {
             if range > 1e-6 {
-                (b as f32 / 255.0) * range + min
+                (f32::from(b) / 255.0) * range + min
             } else {
                 0.0
             }
@@ -326,7 +326,7 @@ fn dequantize_binary(data: &[u64], dim: usize) -> Vec<f32> {
 }
 
 fn dequantize_product(data: &[u8], subvectors: usize, mins: &[f32], maxs: &[f32]) -> Vec<f32> {
-    let subdim = (data.len() + subvectors - 1) / subvectors;
+    let subdim = data.len().div_ceil(subvectors);
     let mut result = Vec::with_capacity(data.len());
     for s in 0..subvectors {
         let start = s * subdim;
@@ -336,7 +336,7 @@ fn dequantize_product(data: &[u8], subvectors: usize, mins: &[f32], maxs: &[f32]
         let range = max - min;
         for &b in &data[start..end] {
             let v = if range > 1e-6 {
-                (b as f32 / 255.0) * range + min
+                (f32::from(b) / 255.0) * range + min
             } else {
                 0.0
             };

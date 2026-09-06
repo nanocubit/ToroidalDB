@@ -1,7 +1,7 @@
 use crate::hybrid_storage::HybridPersistentStore;
 use crate::tql::{
     ast::{DdlStatement, Query},
-    cache::{CacheBackend, CacheError, HashMemory},
+    cache::{CacheBackend, HashMemory},
     context::ContextModulator,
     ddl_parser::parse_ddl_statement,
     executor::{QueryExecutor, QueryResult},
@@ -86,11 +86,10 @@ impl TqlEngine {
             let query_sql = sql.trim()[7..].trim();
             if let Ok((_, query)) = crate::tql::parser::parse_query(query_sql) {
                 return self.explain_query(&query).await;
-            } else {
-                return Err(TqlError::ParseError(
-                    "Failed to parse query for EXPLAIN".to_string(),
-                ));
             }
+            return Err(TqlError::ParseError(
+                "Failed to parse query for EXPLAIN".to_string(),
+            ));
         }
 
         match crate::tql::parser::parse_query(sql) {
@@ -99,8 +98,7 @@ impl TqlEngine {
                     let label = &match_clause.source.label;
                     if self.schema_registry.get_node_type(label)?.is_none() {
                         return Err(TqlError::ValidationError(format!(
-                            "Unknown node type: {}",
-                            label
+                            "Unknown node type: {label}"
                         )));
                     }
                     if let Some(ref where_clause) = query.where_clause {
@@ -114,7 +112,7 @@ impl TqlEngine {
                 }
                 Ok(TqlResult::QueryReady(query))
             }
-            Err(e) => Err(TqlError::ParseError(format!("{:?}", e))),
+            Err(e) => Err(TqlError::ParseError(format!("{e:?}"))),
         }
     }
 
@@ -131,8 +129,7 @@ impl TqlEngine {
             let label = &match_clause.source.label;
             if self.schema_registry.get_node_type(label)?.is_none() {
                 return Err(TqlError::ValidationError(format!(
-                    "Unknown node type: {}",
-                    label
+                    "Unknown node type: {label}"
                 )));
             }
             if let Some(ref where_clause) = &query.where_clause {
@@ -161,10 +158,12 @@ impl TqlEngine {
         // Execute
         let results = QueryExecutor::execute_query(store, query)
             .await
-            .map_err(|e| TqlError::ExecutionError(e))?;
+            .map_err(TqlError::ExecutionError)?;
 
         // Apply context modulation to distances
-        let modulated: Vec<QueryResult> = if !context.is_empty() {
+        let modulated: Vec<QueryResult> = if context.is_empty() {
+            results
+        } else {
             results
                 .into_iter()
                 .map(|mut r| {
@@ -173,8 +172,6 @@ impl TqlEngine {
                     r
                 })
                 .collect()
-        } else {
-            results
         };
 
         // Cache results
@@ -218,28 +215,22 @@ impl TqlEngine {
             }
             DdlStatement::DropNodeType(name) => {
                 self.schema_registry.drop_node_type(&name)?;
-                Ok(TqlResult::DdlSuccess(format!(
-                    "Node type '{}' dropped",
-                    name
-                )))
+                Ok(TqlResult::DdlSuccess(format!("Node type '{name}' dropped")))
             }
             DdlStatement::DropEdgeType(name) => {
                 self.schema_registry.drop_edge_type(&name)?;
-                Ok(TqlResult::DdlSuccess(format!(
-                    "Edge type '{}' dropped",
-                    name
-                )))
+                Ok(TqlResult::DdlSuccess(format!("Edge type '{name}' dropped")))
             }
             DdlStatement::ShowSchema => {
                 let node_types = self.schema_registry.list_node_types()?;
                 let edge_types = self.schema_registry.list_edge_types()?;
                 let mut output = String::from("SCHEMA:\n\nNode Types:\n");
                 for node_type in &node_types {
-                    output.push_str(&format!("  - {}\n", node_type));
+                    output.push_str(&format!("  - {node_type}\n"));
                 }
                 output.push_str("\nEdge Types:\n");
                 for edge_type in &edge_types {
-                    output.push_str(&format!("  - {}\n", edge_type));
+                    output.push_str(&format!("  - {edge_type}\n"));
                 }
                 Ok(TqlResult::DdlSuccess(output))
             }
@@ -268,8 +259,7 @@ impl TqlEngine {
                 match data_type {
                     crate::tql::ast::DataType::Vector(_) => Ok(()),
                     _ => Err(TqlError::ValidationError(format!(
-                        "Field '{}' is not a vector type",
-                        field
+                        "Field '{field}' is not a vector type"
                     ))),
                 }
             }
@@ -300,15 +290,12 @@ fn query_to_cache_key(query: &Query) -> Vec<f32> {
     let mut key = Vec::new();
     if let Some(ref mc) = query.match_clause {
         for b in mc.source.label.bytes() {
-            key.push(b as f32 / 255.0);
+            key.push(f32::from(b) / 255.0);
         }
     }
     if let Some(ref wc) = query.where_clause {
-        match wc {
-            crate::tql::ast::WhereCondition::ToroidalDistance { threshold, .. } => {
-                key.push(*threshold);
-            }
-            _ => {}
+        if let crate::tql::ast::WhereCondition::ToroidalDistance { threshold, .. } = wc {
+            key.push(*threshold);
         }
     }
     key.push(query.limit as f32);
@@ -340,10 +327,10 @@ pub enum TqlError {
 impl std::fmt::Display for TqlError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TqlError::ParseError(msg) => write!(f, "Parse error: {}", msg),
-            TqlError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
-            TqlError::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
-            TqlError::SchemaError(e) => write!(f, "Schema error: {}", e),
+            TqlError::ParseError(msg) => write!(f, "Parse error: {msg}"),
+            TqlError::ValidationError(msg) => write!(f, "Validation error: {msg}"),
+            TqlError::ExecutionError(msg) => write!(f, "Execution error: {msg}"),
+            TqlError::SchemaError(e) => write!(f, "Schema error: {e}"),
         }
     }
 }

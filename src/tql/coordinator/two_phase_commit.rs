@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -143,7 +143,7 @@ impl TwoPhaseCommit {
         }
 
         let mut participants = self.participants.write().unwrap();
-        for pid in participant_ids.iter() {
+        for pid in &participant_ids {
             if let Some(p) = participants.get_mut(pid) {
                 p.state = ParticipantState::Initial;
             }

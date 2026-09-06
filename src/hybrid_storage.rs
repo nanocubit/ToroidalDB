@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, RwLock,
+    Arc,
 };
 use std::time::SystemTime;
 use toroidal_store::ToroidalStore;
@@ -72,7 +72,7 @@ pub struct ToroidalBackend {
 impl ToroidalBackend {
     pub fn open(path: &Path) -> Result<Self> {
         let store =
-            ToroidalStore::open(path).map_err(|e| anyhow::anyhow!("ToroidalStore open: {}", e))?;
+            ToroidalStore::open(path).map_err(|e| anyhow::anyhow!("ToroidalStore open: {e}"))?;
         Ok(Self {
             store: Arc::new(store),
         })
@@ -87,13 +87,13 @@ impl Storage for ToroidalBackend {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.store
             .put(key.to_vec(), value.to_vec())
-            .map_err(|e| anyhow::anyhow!("put: {}", e))
+            .map_err(|e| anyhow::anyhow!("put: {e}"))
     }
 
     fn delete(&self, key: &[u8]) -> Result<()> {
         self.store
             .delete(key)
-            .map_err(|e| anyhow::anyhow!("delete: {}", e))
+            .map_err(|e| anyhow::anyhow!("delete: {e}"))
     }
 
     fn batch(&self, operations: &[BatchOp]) -> Result<()> {
@@ -111,7 +111,7 @@ impl Storage for ToroidalBackend {
             .collect();
         self.store
             .batch(&ops)
-            .map_err(|e| anyhow::anyhow!("batch: {}", e))
+            .map_err(|e| anyhow::anyhow!("batch: {e}"))
     }
 
     fn scan(
@@ -131,21 +131,21 @@ impl Storage for ToroidalBackend {
     fn flush(&self) -> Result<()> {
         self.store
             .checkpoint()
-            .map_err(|e| anyhow::anyhow!("flush: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("flush: {e}"))?;
         Ok(())
     }
 
     fn checkpoint(&self) -> Result<()> {
         self.store
             .checkpoint()
-            .map_err(|e| anyhow::anyhow!("checkpoint: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("checkpoint: {e}"))?;
         Ok(())
     }
 
     fn compact(&self) -> Result<()> {
         self.store
             .compact()
-            .map_err(|e| anyhow::anyhow!("compact: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("compact: {e}"))?;
         Ok(())
     }
 
@@ -167,7 +167,7 @@ impl Snapshot for ToroidalSnapshot {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         self.store
             .get_at(&self.snapshot, key)
-            .map_err(|e| anyhow::anyhow!("snapshot get: {}", e))
+            .map_err(|e| anyhow::anyhow!("snapshot get: {e}"))
     }
 
     fn scan(
@@ -183,7 +183,7 @@ impl Snapshot for ToroidalSnapshot {
         let items = self
             .store
             .scan_at(&self.snapshot, start, end)
-            .map_err(|e| anyhow::anyhow!("snapshot scan: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("snapshot scan: {e}"))?;
         Ok(Box::new(items.into_iter().map(Ok)))
     }
 }
@@ -577,7 +577,7 @@ impl HybridPersistentStore {
     ) -> Result<()> {
         let mut from_node = match self.get(from_id)? {
             Some(n) => n,
-            None => return Err(anyhow::anyhow!("Source node {} not found", from_id)),
+            None => return Err(anyhow::anyhow!("Source node {from_id} not found")),
         };
         from_node.edges.push(Edge {
             target_id: to_id,
@@ -593,12 +593,12 @@ impl HybridPersistentStore {
             Some(n) => n,
             None => return Ok(Vec::new()),
         };
-        let executor = rayon::ThreadPoolBuilder::new().build().unwrap();
+        let _executor = rayon::ThreadPoolBuilder::new().build().unwrap();
         let results: Vec<Result<Node>> = node
             .edges
             .par_iter()
             .map(|e| self.get(e.target_id))
-            .filter_map(|r| r.transpose())
+            .filter_map(std::result::Result::transpose)
             .collect();
         results.into_iter().collect()
     }
@@ -690,7 +690,7 @@ impl HybridPersistentStore {
         self.storage.checkpoint().context("flush failed")
     }
 
-    /// Trigger space reclamation.  On the ToroidalStore backend this merges
+    /// Trigger space reclamation.  On the `ToroidalStore` backend this merges
     /// all segments into one, applying safe retention horizon.
     pub fn compact(&self) -> Result<()> {
         self.storage.compact().context("compact failed")

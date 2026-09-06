@@ -1,4 +1,4 @@
-//! # ONNX Runtime Embedding Service для ToroidalDB
+//! # ONNX Runtime Embedding Service для `ToroidalDB`
 //!
 //! Production-ready реализация с использованием ONNX Runtime
 //! для модели multilingual-e5-small
@@ -16,7 +16,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use ndarray::{Array1, Array2, Axis};
+use ndarray::{Array1, Array2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -480,10 +480,16 @@ impl Tokenizer {
         // Padding если нужно
         let attention_mask = vec![1i64; tokens.len()]
             .into_iter()
-            .chain(std::iter::repeat(0).take(max_length.saturating_sub(tokens.len())))
+            .chain(std::iter::repeat_n(
+                0,
+                max_length.saturating_sub(tokens.len()),
+            ))
             .collect::<Vec<_>>();
 
-        tokens.extend(std::iter::repeat(0).take(max_length.saturating_sub(tokens.len())));
+        tokens.extend(std::iter::repeat_n(
+            0,
+            max_length.saturating_sub(tokens.len()),
+        ));
 
         let token_type_ids = vec![0i64; max_length];
 

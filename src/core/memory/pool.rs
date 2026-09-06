@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 pub struct ObjectPool<T> {
     pool: Mutex<VecDeque<T>>,

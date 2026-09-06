@@ -1,13 +1,10 @@
 use crate::hybrid_storage::HybridPersistentStore;
 use crate::math::MatryoshkaDim;
 use crate::tql::ast::{
-    AggregationField, AggregationFunction, BackendHint, OrderByClause, Query, WhereCondition,
+    AggregationField, AggregationFunction, OrderByClause, Query, WhereCondition,
 };
 use crate::tql::cost_optimizer::CostBasedOptimizer;
-use crate::tql::graph::GraphOperations;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
@@ -45,7 +42,7 @@ impl QueryExecutor {
                     // Возвращаем пустой результат для транзакции
                     return Ok(vec![]);
                 }
-                Err(e) => return Err(format!("Transaction execution failed: {}", e)),
+                Err(e) => return Err(format!("Transaction execution failed: {e}")),
             }
         }
 
@@ -81,10 +78,10 @@ impl QueryExecutor {
         // Вызываем оптимизированный matryoshka_search
         let search_results = store
             .matryoshka_search(&search_vector, MatryoshkaDim::D384, threshold)
-            .map_err(|e| format!("Search error: {}", e))?;
+            .map_err(|e| format!("Search error: {e}"))?;
 
         let mut query_results = Vec::new();
-        for (node_id, distance) in search_results.iter() {
+        for (node_id, distance) in &search_results {
             if let Ok(Some(node)) = store.get(*node_id) {
                 query_results.push(QueryResult {
                     id: node.id,
@@ -128,7 +125,7 @@ impl QueryExecutor {
         // 2. Fallback: check WHERE clause for threshold only
         if let Some(WhereCondition::ToroidalDistance {
             field: _,
-            threshold,
+            threshold: _,
         }) = &query.where_clause
         {
             // No query vector provided — use properties from a random stored node as best-effort
@@ -167,7 +164,10 @@ impl QueryExecutor {
                     let sum = results
                         .iter()
                         .filter_map(|result| {
-                            result.properties.get(field_name).and_then(|v| v.as_f64())
+                            result
+                                .properties
+                                .get(field_name)
+                                .and_then(serde_json::Value::as_f64)
                         })
                         .sum();
                     agg_result.sum = Some(sum);
@@ -176,7 +176,10 @@ impl QueryExecutor {
                     let values: Vec<f64> = results
                         .iter()
                         .filter_map(|result| {
-                            result.properties.get(field_name).and_then(|v| v.as_f64())
+                            result
+                                .properties
+                                .get(field_name)
+                                .and_then(serde_json::Value::as_f64)
                         })
                         .collect();
                     if !values.is_empty() {
@@ -188,9 +191,12 @@ impl QueryExecutor {
                     let min = results
                         .iter()
                         .filter_map(|result| {
-                            result.properties.get(field_name).and_then(|v| v.as_f64())
+                            result
+                                .properties
+                                .get(field_name)
+                                .and_then(serde_json::Value::as_f64)
                         })
-                        .fold(f64::INFINITY, |a, b| a.min(b));
+                        .fold(f64::INFINITY, f64::min);
                     if min != f64::INFINITY {
                         agg_result.min = Some(min);
                     }
@@ -199,9 +205,12 @@ impl QueryExecutor {
                     let max = results
                         .iter()
                         .filter_map(|result| {
-                            result.properties.get(field_name).and_then(|v| v.as_f64())
+                            result
+                                .properties
+                                .get(field_name)
+                                .and_then(serde_json::Value::as_f64)
                         })
-                        .fold(f64::NEG_INFINITY, |a, b| a.max(b));
+                        .fold(f64::NEG_INFINITY, f64::max);
                     if max != f64::NEG_INFINITY {
                         agg_result.max = Some(max);
                     }
@@ -339,12 +348,12 @@ impl QueryExecutor {
 
             let all_nodes = store
                 .get_all()
-                .map_err(|e| format!("Failed to get all nodes: {}", e))?;
+                .map_err(|e| format!("Failed to get all nodes: {e}"))?;
 
             // Фильтруем узлы по метке, если она указана в match_clause
             let start_nodes: Vec<u64> = all_nodes
                 .iter()
-                .filter(|node| {
+                .filter(|_node| {
                     // В реальной реализации здесь будет проверка метки узла
                     // Сейчас просто возвращаем все узлы
                     true
@@ -357,7 +366,7 @@ impl QueryExecutor {
             // Если нет графовой части, возвращаем все узлы
             let all_nodes = store
                 .get_all()
-                .map_err(|e| format!("Failed to get all nodes: {}", e))?;
+                .map_err(|e| format!("Failed to get all nodes: {e}"))?;
 
             let start_nodes: Vec<u64> = all_nodes.iter().map(|node| node.id).collect();
 
@@ -374,11 +383,11 @@ impl QueryExecutor {
 
         // Хешируем основные компоненты запроса
         if let Some(ref match_clause) = query.match_clause {
-            format!("{:?}", match_clause).hash(&mut hasher);
+            format!("{match_clause:?}").hash(&mut hasher);
         }
 
         if let Some(ref where_clause) = query.where_clause {
-            format!("{:?}", where_clause).hash(&mut hasher);
+            format!("{where_clause:?}").hash(&mut hasher);
         }
 
         query.limit.hash(&mut hasher);
@@ -412,14 +421,14 @@ impl QueryExecutor {
     // Получение стартовых узлов из match_clause
     async fn get_start_nodes(
         store: &HybridPersistentStore,
-        query: &Query,
+        _query: &Query,
     ) -> Result<Vec<u64>, String> {
         // В упрощённой реализации возвращаем все узлы или узлы с определённой меткой
         // В реальной реализации нужно будет анализировать match_clause
 
         let all_nodes = store
             .get_all()
-            .map_err(|e| format!("Failed to get all nodes: {}", e))?;
+            .map_err(|e| format!("Failed to get all nodes: {e}"))?;
 
         let start_nodes: Vec<u64> = all_nodes.iter().map(|node| node.id).collect();
 
@@ -438,12 +447,12 @@ impl QueryExecutor {
         let val_a = a
             .properties
             .get(field_name)
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
         let val_b = b
             .properties
             .get(field_name)
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
 
         if order_by.ascending {
@@ -476,10 +485,10 @@ impl QueryExecutor {
         // Вызываем оптимизированный matryoshka_search
         let search_results = store
             .matryoshka_search(&search_vector, crate::math::MatryoshkaDim::D384, threshold)
-            .map_err(|e| format!("Search error: {}", e))?;
+            .map_err(|e| format!("Search error: {e}"))?;
 
         let mut query_results = Vec::new();
-        for (node_id, distance) in search_results.iter() {
+        for (node_id, distance) in &search_results {
             if let Ok(Some(node)) = store.get(*node_id) {
                 query_results.push(QueryResult {
                     id: node.id,

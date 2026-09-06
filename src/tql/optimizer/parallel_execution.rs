@@ -32,9 +32,7 @@ impl ParallelQueryExecutor {
         M: Fn(&T) -> R + Send + Sync + Clone,
         Rm: Fn(R, R) -> R + Send + Sync + Copy + Clone,
     {
-        data.par_iter()
-            .map(|item| map(item))
-            .reduce(|| R::default(), reduce)
+        data.par_iter().map(map).reduce(|| R::default(), reduce)
     }
 }
 

@@ -2,8 +2,7 @@ use crate::auth;
 use crate::hybrid_storage::{HybridPersistentStore, Node};
 use crate::math::MatryoshkaDim;
 use crate::query::{parse_tql, TQLQuery};
-use crate::storage::PersistentStore;
-use crate::topology::edges::{HomotopyClass, InterToroidalEdge};
+use crate::topology::edges::InterToroidalEdge;
 
 use crate::topology::ricci_flow;
 use crate::tql;
@@ -221,7 +220,7 @@ pub async fn search_nodes(
 
             Ok(Json(ApiResponse {
                 success: true,
-                message: Some(format!("Search completed ({})", optimization)),
+                message: Some(format!("Search completed ({optimization})")),
                 data: Some(json!({
                     "collection": collection,
                     "results": results_json,
@@ -246,8 +245,7 @@ pub async fn search_nodes(
                 Ok(()) => Ok(Json(ApiResponse {
                     success: true,
                     message: Some(format!(
-                        "Edge added: {} --[{}]({})-> {}",
-                        from_id, relation_type, weight, to_id
+                        "Edge added: {from_id} --[{relation_type}]({weight})-> {to_id}"
                     )),
                     data: None,
                 })),
@@ -314,7 +312,7 @@ pub async fn search_nodes(
     }
 }
 
-/// Perform BFS graph search from a starting node up to max_depth
+/// Perform BFS graph search from a starting node up to `max_depth`
 async fn graph_search_bfs(
     store: &Arc<HybridPersistentStore>,
     start_id: u64,
@@ -347,7 +345,7 @@ async fn graph_search_bfs(
         // Get neighbors
         let neighbors = store
             .get_neighbors(current_id)
-            .map_err(|e| format!("Failed to get neighbors: {}", e))?;
+            .map_err(|e| format!("Failed to get neighbors: {e}"))?;
 
         for neighbor in neighbors {
             if !visited.contains(&neighbor.id) {
@@ -542,8 +540,7 @@ pub async fn ricci_flow_optimization(
         Ok(optimized_count) => Ok(Json(ApiResponse {
             success: true,
             message: Some(format!(
-                "Ricci flow optimization completed: {} nodes optimized in {} iterations",
-                optimized_count, iterations
+                "Ricci flow optimization completed: {optimized_count} nodes optimized in {iterations} iterations"
             )),
             data: Some(json!({
                 "iterations": iterations,
@@ -797,13 +794,13 @@ pub async fn create_backup_handler(
     match state.backup_manager.create_backup(&state.store).await {
         Ok(backup_id) => Ok(Json(BackupResponse {
             success: true,
-            message: format!("Backup created successfully: {}", backup_id),
+            message: format!("Backup created successfully: {backup_id}"),
             backup_id: Some(backup_id),
             data: None,
         })),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
+            Json(json!({ "error": e.clone() })),
         )),
     }
 }
@@ -836,14 +833,14 @@ pub async fn restore_backup_handler(
         })),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
+            Json(json!({ "error": e.clone() })),
         )),
     }
 }
 
 pub async fn list_backups_handler(
     State(state): State<Arc<AppState>>,
-    req: Request<axum::body::Body>,
+    _req: Request<axum::body::Body>,
 ) -> Result<Json<BackupResponse>, (StatusCode, Json<Value>)> {
     // Authentication handled by auth_middleware
 
@@ -874,7 +871,7 @@ pub async fn list_backups_handler(
         }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
+            Json(json!({ "error": e.clone() })),
         )),
     }
 }

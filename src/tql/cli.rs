@@ -1,14 +1,12 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use serde_json::Value;
-use std::fs;
-use std::io::{self, Read};
 
 #[derive(Parser)]
 #[command(name = "toroidal-cli")]
 #[command(about = "CLI для взаимодействия с ToroidalDB", long_about = None)]
 pub struct Cli {
     #[arg(short, long, default_value = "https://localhost:8443")]
-    /// Адрес сервера ToroidalDB
+    /// Адрес сервера `ToroidalDB`
     pub host: String,
 
     #[arg(short, long)]
@@ -119,7 +117,7 @@ pub struct CliExecutor {
 impl CliExecutor {
     pub fn new(host: String, token: Option<String>) -> Self {
         let auth_header = if let Some(token) = token {
-            format!("Bearer {}", token)
+            format!("Bearer {token}")
         } else {
             // Попробуем получить токен из переменной окружения
             std::env::var("TOROIDAL_TOKEN").unwrap_or_else(|_| "Bearer admin-token-xyz".to_string())
@@ -166,7 +164,7 @@ impl CliExecutor {
         let client = reqwest::Client::new();
 
         let response = client
-            .post(&format!("{}/tql", self.host))
+            .post(format!("{}/tql", self.host))
             .header("Authorization", &self.auth_header)
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -179,9 +177,9 @@ impl CliExecutor {
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка выполнения запроса: {}", body);
+            eprintln!("❌ Ошибка выполнения запроса: {body}");
         }
 
         Ok(())
@@ -199,7 +197,7 @@ impl CliExecutor {
         }
 
         let response = client
-            .post(&format!("{}/backup/create", self.host))
+            .post(format!("{}/backup/create", self.host))
             .header("Authorization", &self.auth_header)
             .header("Content-Type", "application/json")
             .json(&payload)
@@ -210,9 +208,9 @@ impl CliExecutor {
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка создания резервной копии: {}", body);
+            eprintln!("❌ Ошибка создания резервной копии: {body}");
         }
 
         Ok(())
@@ -222,7 +220,7 @@ impl CliExecutor {
         let client = reqwest::Client::new();
 
         let response = client
-            .post(&format!("{}/backup/restore", self.host))
+            .post(format!("{}/backup/restore", self.host))
             .header("Authorization", &self.auth_header)
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -235,9 +233,9 @@ impl CliExecutor {
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка восстановления из резервной копии: {}", body);
+            eprintln!("❌ Ошибка восстановления из резервной копии: {body}");
         }
 
         Ok(())
@@ -247,7 +245,7 @@ impl CliExecutor {
         let client = reqwest::Client::new();
 
         let response = client
-            .get(&format!("{}/backup/list", self.host))
+            .get(format!("{}/backup/list", self.host))
             .header("Authorization", &self.auth_header)
             .send()
             .await?;
@@ -256,9 +254,9 @@ impl CliExecutor {
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка получения списка резервных копий: {}", body);
+            eprintln!("❌ Ошибка получения списка резервных копий: {body}");
         }
 
         Ok(())
@@ -267,15 +265,15 @@ impl CliExecutor {
     async fn check_health(&self) -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
 
-        let response = client.get(&format!("{}/health", self.host)).send().await?;
+        let response = client.get(format!("{}/health", self.host)).send().await?;
 
         let status = response.status();
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка проверки состояния: {}", body);
+            eprintln!("❌ Ошибка проверки состояния: {body}");
         }
 
         Ok(())
@@ -284,15 +282,15 @@ impl CliExecutor {
     async fn get_metrics(&self) -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
 
-        let response = client.get(&format!("{}/metrics", self.host)).send().await?;
+        let response = client.get(format!("{}/metrics", self.host)).send().await?;
 
         let status = response.status();
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка получения метрик: {}", body);
+            eprintln!("❌ Ошибка получения метрик: {body}");
         }
 
         Ok(())
@@ -326,7 +324,7 @@ impl CliExecutor {
         let client = reqwest::Client::new();
 
         let response = client
-            .get(&format!("{}/nodes/{}", self.host, id))
+            .get(format!("{}/nodes/{}", self.host, id))
             .header("Authorization", &self.auth_header)
             .send()
             .await?;
@@ -335,9 +333,9 @@ impl CliExecutor {
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка получения узла: {}", body);
+            eprintln!("❌ Ошибка получения узла: {body}");
         }
 
         Ok(())
@@ -383,7 +381,7 @@ impl CliExecutor {
         };
 
         let response = client
-            .post(&format!("{}/nodes/{}", self.host, id))
+            .post(format!("{}/nodes/{}", self.host, id))
             .header("Authorization", &self.auth_header)
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -398,15 +396,15 @@ impl CliExecutor {
         let body = response.text().await?;
 
         if status.is_success() {
-            println!("{}", body);
+            println!("{body}");
         } else {
-            eprintln!("❌ Ошибка создания узла: {}", body);
+            eprintln!("❌ Ошибка создания узла: {body}");
         }
 
         Ok(())
     }
 
-    async fn delete_node(&self, id: u64) -> Result<(), Box<dyn std::error::Error>> {
+    async fn delete_node(&self, _id: u64) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!(
             "❌ Удаление узлов напрямую не поддерживается через API. Используйте транзакции."
         );
@@ -438,7 +436,7 @@ impl CliExecutor {
         if let Some(file_path) = file {
             let content = std::fs::read_to_string(file_path)?;
             println!("📁 Транзакция начата из файла");
-            println!("   Содержимое: {}", content);
+            println!("   Содержимое: {content}");
         } else {
             println!("📁 Интерактивная транзакция начата");
         }

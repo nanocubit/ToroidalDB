@@ -1,11 +1,11 @@
 //! Expression evaluator for TQL conditions and triggers.
 //!
 //! AST для выражений и полноценный evaluator с поддержкой:
-//! - FieldAccess (поля узлов)
+//! - `FieldAccess` (поля узлов)
 //! - Literal (константы)
-//! - BinaryOp (сравнения, логические операции)
-//! - FunctionCall (TOROIDALCOSINE, CONTAINS, ARRAY_CONTAINS)
-//! - ToroidalDistance (специализированная функция)
+//! - `BinaryOp` (сравнения, логические операции)
+//! - `FunctionCall` (TOROIDALCOSINE, CONTAINS, `ARRAY_CONTAINS`)
+//! - `ToroidalDistance` (специализированная функция)
 
 use crate::tql::ast::PropertyValue;
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ pub enum BinaryOperator {
 pub struct EvalContext {
     /// Row data (fields of the current node/edge).
     pub row: HashMap<String, PropertyValue>,
-    /// Global variables (e.g., $breakthrough_centroid).
+    /// Global variables (e.g., $`breakthrough_centroid`).
     pub globals: HashMap<String, PropertyValue>,
 }
 
@@ -78,6 +78,12 @@ impl EvalContext {
 /// Expression evaluator.
 pub struct ExpressionEvaluator;
 
+impl Default for ExpressionEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExpressionEvaluator {
     pub fn new() -> Self {
         Self
@@ -90,7 +96,7 @@ impl ExpressionEvaluator {
             Expression::FieldAccess { field } => ctx
                 .get_field(field)
                 .cloned()
-                .ok_or_else(|| format!("Field '{}' not found", field)),
+                .ok_or_else(|| format!("Field '{field}' not found")),
             Expression::BinaryOp { left, op, right } => {
                 let left_val = self.eval(left, ctx)?;
                 let right_val = self.eval(right, ctx)?;
@@ -102,10 +108,14 @@ impl ExpressionEvaluator {
                 let args_val = args_val?;
                 self.eval_function(name, &args_val)
             }
-            Expression::ToroidalDistance { left, right, phi } => {
+            Expression::ToroidalDistance {
+                left,
+                right,
+                phi: _,
+            } => {
                 let left_vec = self.eval_vec(left, ctx)?;
                 let right_vec = self.eval_vec(right, ctx)?;
-                let distance = crate::math::toroidal_distance(&left_vec, &right_vec) as f64;
+                let distance = f64::from(crate::math::toroidal_distance(&left_vec, &right_vec));
                 Ok(PropertyValue::Number(distance))
             }
         }
@@ -145,7 +155,7 @@ impl ExpressionEvaluator {
                     _ => return Err("Invalid operator for booleans".into()),
                 }))
             }
-            _ => Err(format!("Type mismatch: {:?} vs {:?}", left, right)),
+            _ => Err(format!("Type mismatch: {left:?} vs {right:?}")),
         }
     }
 
@@ -158,7 +168,7 @@ impl ExpressionEvaluator {
                 let left = self.extract_vec(&args[0])?;
                 let right = self.extract_vec(&args[1])?;
                 let cosine = toroidal_cosine(&left, &right, 5.71);
-                Ok(PropertyValue::Number(cosine as f64))
+                Ok(PropertyValue::Number(f64::from(cosine)))
             }
             "CONTAINS" => {
                 if args.len() != 2 {
@@ -178,7 +188,7 @@ impl ExpressionEvaluator {
                     self.to_string(v).map(|s| s == needle).unwrap_or(false)
                 })))
             }
-            _ => Err(format!("Unknown function: {}", name)),
+            _ => Err(format!("Unknown function: {name}")),
         }
     }
 
@@ -187,18 +197,18 @@ impl ExpressionEvaluator {
             PropertyValue::String(s) => {
                 // Try to parse as JSON array of floats
                 serde_json::from_str::<Vec<f32>>(&s)
-                    .map_err(|_| format!("Cannot parse vector from: {}", s))
+                    .map_err(|_| format!("Cannot parse vector from: {s}"))
             }
-            val => Err(format!("Expected vector, got {:?}", val)),
+            val => Err(format!("Expected vector, got {val:?}")),
         }
     }
 
     fn extract_vec(&self, val: &PropertyValue) -> Result<Vec<f32>, String> {
         match val {
             PropertyValue::String(s) => serde_json::from_str::<Vec<f32>>(s)
-                .map_err(|_| format!("Cannot parse vector from: {}", s)),
+                .map_err(|_| format!("Cannot parse vector from: {s}")),
             PropertyValue::Number(n) => Ok(vec![*n as f32]),
-            _ => Err(format!("Expected vector, got {:?}", val)),
+            _ => Err(format!("Expected vector, got {val:?}")),
         }
     }
 
@@ -206,8 +216,8 @@ impl ExpressionEvaluator {
         // For now, arrays are serialized as JSON strings in PropertyValue
         match val {
             PropertyValue::String(s) => {
-                let arr: Vec<serde_json::Value> = serde_json::from_str(s)
-                    .map_err(|_| format!("Cannot parse array from: {}", s))?;
+                let arr: Vec<serde_json::Value> =
+                    serde_json::from_str(s).map_err(|_| format!("Cannot parse array from: {s}"))?;
                 Ok(arr
                     .into_iter()
                     .map(|v| match v {
@@ -220,7 +230,7 @@ impl ExpressionEvaluator {
                     })
                     .collect())
             }
-            _ => Err(format!("Expected array, got {:?}", val)),
+            _ => Err(format!("Expected array, got {val:?}")),
         }
     }
 
@@ -235,7 +245,7 @@ impl ExpressionEvaluator {
 
 /// Simple toroidal cosine similarity (wrapper around existing math).
 fn toroidal_cosine(a: &[f32], b: &[f32], _phi: f32) -> f32 {
-    let dist = crate::math::toroidal_distance(a, b) as f32;
+    let dist = crate::math::toroidal_distance(a, b);
     1.0 / (1.0 + dist)
 }
 

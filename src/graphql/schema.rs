@@ -87,7 +87,7 @@ pub struct QueryRoot;
 impl QueryRoot {
     async fn node(&self, ctx: &Context<'_>, id: ID) -> Option<GqlNode> {
         let storage = ctx.data::<Arc<dyn NodeStorage>>().ok()?;
-        storage.get_node(&id.to_string()).await
+        storage.get_node(id.as_ref()).await
     }
 
     async fn nodes(
@@ -155,7 +155,7 @@ impl QueryRoot {
 
     async fn edge(&self, ctx: &Context<'_>, id: ID) -> Option<GqlEdge> {
         let storage = ctx.data::<Arc<dyn EdgeStorage>>().ok()?;
-        storage.get_edge(&id.to_string()).await
+        storage.get_edge(id.as_ref()).await
     }
 
     async fn edges(
@@ -215,7 +215,7 @@ impl MutationRoot {
     ) -> Option<GqlNode> {
         let storage = ctx.data::<Arc<dyn NodeStorage>>().ok()?;
         storage
-            .update_node(&id.to_string(), input.label, input.vector, input.properties)
+            .update_node(id.as_ref(), input.label, input.vector, input.properties)
             .await
     }
 
@@ -224,7 +224,7 @@ impl MutationRoot {
             Ok(s) => s,
             Err(_) => return false,
         };
-        storage.delete_node(&id.to_string()).await
+        storage.delete_node(id.as_ref()).await
     }
 
     async fn create_edge(&self, ctx: &Context<'_>, input: CreateEdgeInput) -> Option<GqlEdge> {
@@ -245,7 +245,7 @@ impl MutationRoot {
             Ok(s) => s,
             Err(_) => return false,
         };
-        storage.delete_edge(&id.to_string()).await
+        storage.delete_edge(id.as_ref()).await
     }
 
     async fn execute_query(&self, ctx: &Context<'_>, query: String) -> String {
@@ -253,7 +253,7 @@ impl MutationRoot {
         if let Some(exec) = executor {
             match exec.execute_query(&query).await {
                 Ok(result) => serde_json::to_string(&result).unwrap_or_default(),
-                Err(e) => format!("{{\"error\": \"{}\"}}", e),
+                Err(e) => format!("{{\"error\": \"{e}\"}}"),
             }
         } else {
             r#"{"error": "Query executor not available"}"#.to_string()

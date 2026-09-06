@@ -64,8 +64,8 @@ impl TqlGrpcServer {
     ///
     /// Для полноценной работы требуется:
     /// 1. Добавить tonic и prost в Cargo.toml
-    /// 2. Создать build.rs с tonic_build::compile_protos("proto/tql.proto")
-    /// 3. Сгенерировать код: tonic_build::compile_protos("proto/tql.proto")?
+    /// 2. Создать build.rs с `tonic_build::compile_protos("proto/tql.proto`")
+    /// 3. Сгенерировать код: `tonic_build::compile_protos("proto/tql.proto`")?
     ///
     /// После этого можно использовать сгенерированный код:
     /// ```rust,ignore
@@ -105,14 +105,14 @@ impl TqlGrpcServer {
     ) -> Result<String, String> {
         let mut tql = query.to_string();
         if let Some(vec) = query_vector {
-            tql = format!("-- query_vector: {:?}\n{}", vec, tql);
+            tql = format!("-- query_vector: {vec:?}\n{tql}");
         }
         let result = self
             .engine
             .execute(&tql)
             .await
-            .map_err(|e| format!("{}", e))?;
-        Ok(format!("{:?}", result))
+            .map_err(|e| format!("{e}"))?;
+        Ok(format!("{result:?}"))
     }
 
     /// Publish an event to all gRPC subscribers.

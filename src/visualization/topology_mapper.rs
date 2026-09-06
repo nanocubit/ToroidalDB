@@ -1,4 +1,4 @@
-//! Топологический маппер для ToroidalDB
+//! Топологический маппер для `ToroidalDB`
 //!
 //! Предоставляет визуализацию топологических структур:
 //! - Тороидальные пространства
@@ -6,17 +6,15 @@
 //! - Поток Риччи
 //! - Топологические инварианты
 
-use crate::hybrid_storage::Node as HybridNode;
 use crate::math::MatryoshkaDim;
 use crate::topology::edges::{HomotopyClass, InterToroidalEdge, ToroidalLevel};
 use crate::topology::functions::{
-    compute_homotopy_class, ricci_curvature, topological_centrality,
-    toroidal_distance as topological_distance,
+    compute_homotopy_class, ricci_curvature, toroidal_distance as topological_distance,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopologicalMap {
@@ -80,16 +78,16 @@ impl TopologyMapper {
             .get_all()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|n| n.into())
+            .map(|n| n)
             .collect();
 
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
-        let mut homotopy_classes = HashSet::new();
+        let homotopy_classes = HashSet::new();
 
         for node in &all_nodes {
-            if self.belongs_to_level(&node, level) {
-                let topo_node = self.node_to_topological_node(&node, level)?;
+            if self.belongs_to_level(node, level) {
+                let topo_node = self.node_to_topological_node(node, level)?;
                 nodes.push(topo_node);
             }
         }
@@ -182,13 +180,13 @@ impl TopologyMapper {
             .store
             .get(source_id)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Source node {} not found", source_id))?
+            .ok_or_else(|| format!("Source node {source_id} not found"))?
             .into();
         let target_node: crate::hybrid_storage::Node = self
             .store
             .get(target_id)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Target node {} not found", target_id))?
+            .ok_or_else(|| format!("Target node {target_id} not found"))?
             .into();
 
         // Вычисляем топологическое расстояние
@@ -233,7 +231,7 @@ impl TopologyMapper {
     /// Проверяет принадлежность узла к уровню по ID
     fn belongs_to_level_by_id(&self, node_id: u64, level: ToroidalLevel) -> bool {
         if let Ok(Some(node)) = self.store.get(node_id) {
-            let hybrid: crate::hybrid_storage::Node = node.into();
+            let hybrid: crate::hybrid_storage::Node = node;
             self.belongs_to_level(&hybrid, level)
         } else {
             false
@@ -243,8 +241,8 @@ impl TopologyMapper {
     /// Вычисляет гомотопический класс узла
     fn compute_node_homotopy_class(
         &self,
-        node: &crate::hybrid_storage::Node,
-        level: ToroidalLevel,
+        _node: &crate::hybrid_storage::Node,
+        _level: ToroidalLevel,
     ) -> Result<HomotopyClass, String> {
         // В реальной системе это будет более сложное вычисление
         // Пока возвращаем Direct для простоты
@@ -255,7 +253,7 @@ impl TopologyMapper {
     fn position_in_torus_space(
         &self,
         vector: &[f32],
-        level: ToroidalLevel,
+        _level: ToroidalLevel,
     ) -> Result<(f32, f32), String> {
         if vector.is_empty() {
             return Ok((0.0, 0.0));
@@ -263,7 +261,7 @@ impl TopologyMapper {
 
         // Используем первые два элемента вектора как координаты
         // Если вектор короче, используем циклическое дополнение
-        let x = if vector.len() > 0 {
+        let x = if !vector.is_empty() {
             vector[0].rem_euclid(1.0)
         } else {
             0.0
@@ -271,7 +269,7 @@ impl TopologyMapper {
         let y = if vector.len() > 1 {
             vector[1].rem_euclid(1.0)
         } else {
-            if vector.len() > 0 {
+            if !vector.is_empty() {
                 vector[0].rem_euclid(1.0)
             } else {
                 0.0
@@ -337,13 +335,13 @@ impl TopologyMapper {
 
         for node in nodes {
             if let Ok(Some(original_node)) = self.store.get(node.id) {
-                let hybrid_node: crate::hybrid_storage::Node = original_node.into();
+                let hybrid_node: crate::hybrid_storage::Node = original_node;
                 let all_nodes: Vec<crate::hybrid_storage::Node> = self
                     .store
                     .get_all()
                     .map_err(|e| e.to_string())?
                     .into_iter()
-                    .map(|n| n.into())
+                    .map(|n| n)
                     .collect();
                 let curvature = ricci_curvature(&hybrid_node, &hybrid_node, &all_nodes, 0.3);
                 total_curvature += curvature;
@@ -418,12 +416,12 @@ impl TopologyMapper {
     /// Экспортирует топологическую карту в JSON
     pub fn export_to_json(&self, topo_map: &TopologicalMap) -> Result<String, String> {
         serde_json::to_string(topo_map)
-            .map_err(|e| format!("Failed to serialize topological map: {}", e))
+            .map_err(|e| format!("Failed to serialize topological map: {e}"))
     }
 
     /// Создает 3D визуализацию топологии
     pub fn create_3d_visualization(&self, level: ToroidalLevel) -> Result<String, String> {
-        let topo_map = self.create_topological_map(level, true)?;
+        let _topo_map = self.create_topological_map(level, true)?;
 
         // Создаем HTML с 3D визуализацией (упрощённо)
         let html = r#"<script>
@@ -431,7 +429,7 @@ impl TopologyMapper {
     </script>
 </body>
 </html>"#
-            .replace("__LEVEL__", &format!("{:?}", level));
+            .replace("__LEVEL__", &format!("{level:?}"));
 
         Ok(html)
     }
@@ -533,7 +531,7 @@ impl TopologyMapper {
     </script>
 </body>
 </html>"##
-            .replace("__LEVEL__", &format!("{:?}", level))
+            .replace("__LEVEL__", &format!("{level:?}"))
             .replace("__NODES__", &nodes_json)
             .replace("__EDGES__", &edges_json);
 

@@ -5,11 +5,10 @@
 //! - Non-appendable (sealed): только читать (mmap, готов к merge)
 //! - Optimizer: фоновый merge маленьких сегментов в большие
 
-use crate::hybrid_storage::{Edge, HybridPersistentStore, Node};
+use crate::hybrid_storage::Node;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Segment ID.
@@ -197,7 +196,7 @@ impl SegmentManager {
         *self.next_id.write().await += 1;
 
         for seg in &small_segments {
-            for (_, node) in &seg.nodes {
+            for node in seg.nodes.values() {
                 merged.nodes.insert(node.id, node.clone());
             }
         }
@@ -216,7 +215,7 @@ impl SegmentManager {
     /// Total nodes across all segments.
     pub async fn total_nodes(&self) -> usize {
         let segments = self.segments.read().await;
-        segments.iter().map(|s| s.len()).sum()
+        segments.iter().map(Segment::len).sum()
     }
 
     /// Get all nodes (for migration/compatibility).

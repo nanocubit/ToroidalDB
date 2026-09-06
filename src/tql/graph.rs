@@ -31,7 +31,7 @@ impl GraphOperations {
         // В упрощенной реализации считаем, что целевые узлы - это все узлы в хранилище
         let all_nodes = store
             .get_all()
-            .map_err(|e| format!("Failed to get all nodes: {}", e))?;
+            .map_err(|e| format!("Failed to get all nodes: {e}"))?;
 
         for node in &all_nodes {
             // В реальной системе здесь будет фильтрация по метке или свойствам
@@ -81,7 +81,7 @@ impl GraphOperations {
                                 }
                             }
                         }
-                        Err(e) => return Err(format!("Failed to get neighbors: {}", e)),
+                        Err(e) => return Err(format!("Failed to get neighbors: {e}")),
                     }
                 }
             }
@@ -122,7 +122,7 @@ impl GraphOperations {
                                 }
                             }
                         }
-                        Err(e) => return Err(format!("Failed to get neighbors: {}", e)),
+                        Err(e) => return Err(format!("Failed to get neighbors: {e}")),
                     }
                 }
             }
@@ -168,7 +168,7 @@ impl GraphOperations {
                 if Self::matches_property_filter(&node, &connected_clause.property_filter) {
                     // В реальной системе оценка будет зависеть от топологического расстояния
                     let score =
-                        (within_clause.min_hops as f32 + within_clause.max_hops as f32) / 2.0;
+                        f32::midpoint(within_clause.min_hops as f32, within_clause.max_hops as f32);
                     results.push(QueryResult {
                         id: node.id,
                         score,
@@ -193,13 +193,13 @@ impl GraphOperations {
                     // Сравниваем значения (упрощённая реализация)
                     match expected_value {
                         crate::tql::ast::PropertyValue::String(expected_str) => {
-                            value.as_str().map_or(false, |s| s == expected_str)
+                            value.as_str().is_some_and(|s| s == expected_str)
                         }
                         crate::tql::ast::PropertyValue::Number(expected_num) => value
                             .as_f64()
-                            .map_or(false, |n| (n - expected_num).abs() < f64::EPSILON),
+                            .is_some_and(|n| (n - expected_num).abs() < f64::EPSILON),
                         crate::tql::ast::PropertyValue::Boolean(expected_bool) => {
-                            value.as_bool().map_or(false, |b| b == *expected_bool)
+                            value.as_bool() == Some(*expected_bool)
                         }
                     }
                 } else {

@@ -1,5 +1,4 @@
-use crate::index::{Condition, Filter};
-use crate::tql::ast::{BackendHint, Query, QueryHints, WhereCondition};
+use crate::tql::ast::{BackendHint, Query, WhereCondition};
 use crate::tql::cost_optimizer::CostBasedOptimizer;
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +9,7 @@ pub enum SearchStrategy {
     VectorFirst { ef: usize, oversampling: f32 },
     /// Filter first (if highly selective), then vector search on subset
     FilterFirst { estimated_selectivity: f32 },
-    /// Filter-aware HNSW (payload_m) handles both
+    /// Filter-aware HNSW (`payload_m`) handles both
     FilterAwareHnsw { payload_m: usize },
 }
 
@@ -163,31 +162,20 @@ impl PlanBuilder {
 
         // Step 2: Vector search if TOROIDALDISTANCE present
         if let Some(where_clause) = &query.where_clause {
-            match where_clause {
-                WhereCondition::ToroidalDistance { field, threshold } => {
-                    steps.push(PlanStep::LocalVectorSearch {
-                        field: field.clone(),
-                        threshold: *threshold,
-                        limit: query.limit,
-                        backend: backend.clone(),
-                    });
-                }
-                _ => {}
+            if let WhereCondition::ToroidalDistance { field, threshold } = where_clause {
+                steps.push(PlanStep::LocalVectorSearch {
+                    field: field.clone(),
+                    threshold: *threshold,
+                    limit: query.limit,
+                    backend: backend.clone(),
+                });
             }
         }
 
         // Step 3: Graph traversal if CONNECTEDTO/WITHIN present
         if let Some(connected) = &query.connected_clause {
-            let max_hops = query
-                .within_clause
-                .as_ref()
-                .map(|w| w.max_hops)
-                .unwrap_or(2);
-            let min_hops = query
-                .within_clause
-                .as_ref()
-                .map(|w| w.min_hops)
-                .unwrap_or(1);
+            let max_hops = query.within_clause.as_ref().map_or(2, |w| w.max_hops);
+            let min_hops = query.within_clause.as_ref().map_or(1, |w| w.min_hops);
 
             steps.push(PlanStep::GraphTraversal {
                 edge_type: Some(connected.relationship_type.clone()),
@@ -288,7 +276,7 @@ impl ExplainResult {
             output.push_str(&format!("{}. ", i + 1));
             match step {
                 PlanStep::RouteShards { strategy, .. } => {
-                    output.push_str(&format!("ROUTE_SHARDS strategy={:?}\n", strategy));
+                    output.push_str(&format!("ROUTE_SHARDS strategy={strategy:?}\n"));
                 }
                 PlanStep::LocalVectorSearch {
                     field,
@@ -297,8 +285,7 @@ impl ExplainResult {
                     backend,
                 } => {
                     output.push_str(&format!(
-                        "LOCAL_VECTOR_SEARCH field={} threshold={} limit={} backend={:?}\n",
-                        field, threshold, limit, backend
+                        "LOCAL_VECTOR_SEARCH field={field} threshold={threshold} limit={limit} backend={backend:?}\n"
                     ));
                 }
                 PlanStep::GraphTraversal {
@@ -308,12 +295,11 @@ impl ExplainResult {
                     direction,
                 } => {
                     output.push_str(&format!(
-                        "GRAPH_TRAVERSAL edge={:?} hops={}..{} direction={:?}\n",
-                        edge_type, min_hops, max_hops, direction
+                        "GRAPH_TRAVERSAL edge={edge_type:?} hops={min_hops}..{max_hops} direction={direction:?}\n"
                     ));
                 }
                 PlanStep::TopKMerge { k, sort_field } => {
-                    output.push_str(&format!("TOP_K_MERGE k={} sort={:?}\n", k, sort_field));
+                    output.push_str(&format!("TOP_K_MERGE k={k} sort={sort_field:?}\n"));
                 }
                 PlanStep::Filter { conditions } => {
                     output.push_str(&format!("FILTER conditions={}\n", conditions.len()));

@@ -4,15 +4,14 @@
 //! достаточное для совместимости с Neo4j-инструментарием.
 
 use crate::hybrid_storage::HybridPersistentStore;
-use crate::tql::ast::*;
 use crate::tql::engine::{TqlEngine, TqlResult};
 use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case, take_while1},
-    character::complete::{char, multispace0, multispace1},
+    character::complete::{char, multispace0},
     combinator::{map, opt},
     multi::separated_list0,
-    sequence::{delimited, preceded, tuple},
+    sequence::{preceded, tuple},
     IResult,
 };
 use std::sync::Arc;
@@ -34,7 +33,7 @@ fn number(input: &str) -> IResult<&str, f32> {
     let (input, dec_part) = opt(preceded(char('.'), nom::character::complete::digit1))(input)?;
     let int_val: f32 = int_part.parse().unwrap_or(0.0);
     let dec_val: f32 = match dec_part {
-        Some(d) => format!("0.{}", d).parse().unwrap_or(0.0),
+        Some(d) => format!("0.{d}").parse().unwrap_or(0.0),
         None => 0.0,
     };
     let val = int_val + dec_val;
@@ -68,7 +67,7 @@ fn parse_gql_return(input: &str) -> IResult<&str, Vec<String>> {
     ws(input)?;
     separated_list0(
         tuple((ws, char(','), ws)),
-        map(identifier, |s| s.to_string()),
+        map(identifier, std::string::ToString::to_string),
     )(input)
 }
 
@@ -132,7 +131,7 @@ impl GqlBridge {
             .engine
             .execute(&tql)
             .await
-            .map_err(|e| GqlError::Execution(format!("{}", e)))?;
+            .map_err(|e| GqlError::Execution(format!("{e}")))?;
         Ok(match result {
             TqlResult::Query(results) => GqlResult::Rows(
                 results
@@ -163,9 +162,9 @@ impl GqlBridge {
             return self.translate_vector_index(trimmed);
         }
 
-        Err(GqlError::Unsupported(format!(
-            "Unsupported GQL statement. Supported: MATCH, INSERT, CREATE VECTOR INDEX"
-        )))
+        Err(GqlError::Unsupported(
+            "Unsupported GQL statement. Supported: MATCH, INSERT, CREATE VECTOR INDEX".to_string(),
+        ))
     }
 
     fn translate_match(&self, gql: &str) -> Result<String, GqlError> {
@@ -179,26 +178,21 @@ impl GqlBridge {
         // Parse optional WHERE
         let (rest, where_info) = match opt(parse_gql_where)(remaining) {
             Ok((r, w)) => (r, w),
-            Err(e) => return Err(GqlError::Parse(format!("Failed to parse WHERE: {:?}", e))),
+            Err(e) => return Err(GqlError::Parse(format!("Failed to parse WHERE: {e:?}"))),
         };
         remaining = rest;
 
         // Parse optional ORDER BY
         let (rest, order_info) = match opt(parse_gql_order_by)(remaining) {
             Ok((r, o)) => (r, o),
-            Err(e) => {
-                return Err(GqlError::Parse(format!(
-                    "Failed to parse ORDER BY: {:?}",
-                    e
-                )))
-            }
+            Err(e) => return Err(GqlError::Parse(format!("Failed to parse ORDER BY: {e:?}"))),
         };
         remaining = rest;
 
         // Parse optional LIMIT
         let (rest, limit) = match opt(parse_gql_limit)(remaining) {
             Ok((r, l)) => (r, l.unwrap_or(10)),
-            Err(e) => return Err(GqlError::Parse(format!("Failed to parse LIMIT: {:?}", e))),
+            Err(e) => return Err(GqlError::Parse(format!("Failed to parse LIMIT: {e:?}"))),
         };
         remaining = rest;
 
@@ -211,10 +205,7 @@ impl GqlBridge {
         tql.push_str(&format!("MATCH ({}:{})", match_clause.0, match_clause.1));
 
         if let Some((field, threshold)) = where_info {
-            tql.push_str(&format!(
-                " WHERE TOROIDALDISTANCE({}, {})",
-                field, threshold
-            ));
+            tql.push_str(&format!(" WHERE TOROIDALDISTANCE({field}, {threshold})"));
         }
 
         if !return_fields.is_empty() {
@@ -223,10 +214,10 @@ impl GqlBridge {
 
         if let Some((field, ascending)) = order_info {
             let dir = if ascending { "" } else { " DESC" };
-            tql.push_str(&format!(" ORDER BY {}{}", field, dir));
+            tql.push_str(&format!(" ORDER BY {field}{dir}"));
         }
 
-        tql.push_str(&format!(" LIMIT {}", limit));
+        tql.push_str(&format!(" LIMIT {limit}"));
 
         Ok(tql)
     }
@@ -239,8 +230,7 @@ impl GqlBridge {
             .ok_or_else(|| GqlError::Parse("Could not extract label".into()))?;
 
         Ok(format!(
-            "CREATE NODE TYPE {} (id INT PRIMARY KEY);\nMATCH (n:{}) RETURN n.id LIMIT 1",
-            label, label
+            "CREATE NODE TYPE {label} (id INT PRIMARY KEY);\nMATCH (n:{label}) RETURN n.id LIMIT 1"
         ))
     }
 
@@ -254,13 +244,12 @@ impl GqlBridge {
         let dim = gql
             .split("DIMENSION")
             .nth(1)
-            .and_then(|s| s.trim().split_whitespace().next())
+            .and_then(|s| s.split_whitespace().next())
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(1536);
 
         Ok(format!(
-            "ALTER NODE TYPE {} ADD content_t3 VECTOR({}) VECTOR_INDEX(phi = 5.71);",
-            label, dim
+            "ALTER NODE TYPE {label} ADD content_t3 VECTOR({dim}) VECTOR_INDEX(phi = 5.71);"
         ))
     }
 }

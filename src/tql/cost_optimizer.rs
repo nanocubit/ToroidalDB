@@ -2,7 +2,7 @@
 //!
 //! Оптимизация запросов на основе стоимости
 
-use crate::tql::ast::*;
+use crate::tql::ast::{MatchClause, PropertyValue, Query, WhereCondition};
 use std::collections::HashMap;
 
 /// Cost-Based Optimizer
@@ -49,6 +49,12 @@ impl Cost {
             memory_cost: memory,
             total_cost: cpu + io + memory,
         }
+    }
+}
+
+impl Default for CostBasedOptimizer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -102,7 +108,7 @@ impl CostBasedOptimizer {
         // Получаем статистику таблицы
         if let Some(stats) = self.statistics.get(label) {
             // Scan cost
-            let io_cost = stats.row_count as f64 * stats.avg_row_size as f64 / 8192.0;
+            let io_cost = stats.row_count as f64 * f64::from(stats.avg_row_size) / 8192.0;
             let cpu_cost = stats.row_count as f64 * 0.001;
 
             Cost::new(cpu_cost, io_cost, 0.0)
@@ -135,7 +141,7 @@ impl CostBasedOptimizer {
                 field: _,
                 threshold,
             } => {
-                let selectivity = *threshold as f64;
+                let selectivity = f64::from(*threshold);
                 let cpu_cost = selectivity * 100.0;
                 Cost::new(cpu_cost, 0.0, 50.0)
             }
@@ -185,16 +191,12 @@ impl CostBasedOptimizer {
 
     /// Оценивает стоимость графового обхода
     fn estimate_graph_traversal_cost(&self, query: &Query) -> Cost {
-        let max_hops = query
-            .within_clause
-            .as_ref()
-            .map(|w| w.max_hops)
-            .unwrap_or(2);
+        let max_hops = query.within_clause.as_ref().map_or(2, |w| w.max_hops);
 
         // Exponential cost with hops
         let base_cost = 100.0;
-        let cpu_cost = base_cost * (max_hops as f64).powi(2);
-        let memory_cost = base_cost * max_hops as f64;
+        let cpu_cost = base_cost * f64::from(max_hops).powi(2);
+        let memory_cost = base_cost * f64::from(max_hops);
 
         Cost::new(cpu_cost, 0.0, memory_cost)
     }
@@ -204,7 +206,7 @@ impl CostBasedOptimizer {
         let row_count = self.estimate_result_cardinality(query);
 
         // O(n log n) sort cost
-        let cpu_cost = row_count * (row_count as f64).log2() * 0.01;
+        let cpu_cost = row_count * row_count.log2() * 0.01;
         let memory_cost = row_count * 8.0; // 8 bytes per row for sort key
 
         Cost::new(cpu_cost, 0.0, memory_cost)
@@ -218,14 +220,14 @@ impl CostBasedOptimizer {
         if let Some(where_clause) = &query.where_clause {
             let selectivity = match where_clause {
                 WhereCondition::PropertyFilter { .. } => 0.1,
-                WhereCondition::ToroidalDistance { threshold, .. } => *threshold as f64,
+                WhereCondition::ToroidalDistance { threshold, .. } => f64::from(*threshold),
                 WhereCondition::SimilarTo { .. } => 0.05,
             };
             cardinality *= selectivity;
         }
 
         // Apply LIMIT
-        cardinality = cardinality.min(query.limit as f64);
+        cardinality = cardinality.min(f64::from(query.limit));
 
         cardinality
     }
@@ -253,13 +255,13 @@ impl CostBasedOptimizer {
     }
 
     /// Применяет predicate pushdown
-    fn apply_predicate_pushdown(&self, query: &mut Query) {
+    fn apply_predicate_pushdown(&self, _query: &mut Query) {
         // Push WHERE clause down to MATCH clause
         // This is a simplified implementation
     }
 
     /// Переупорядочивает операции
-    fn reorder_operations(&self, query: &mut Query) {
+    fn reorder_operations(&self, _query: &mut Query) {
         // Reorder operations based on cost
         // This is a simplified implementation
     }

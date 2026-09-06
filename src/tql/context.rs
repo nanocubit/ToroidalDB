@@ -89,7 +89,7 @@ impl ContextModulator {
     pub fn decay(&self) {
         let rate = self.decay_rate;
         self.weights.retain(|_, w| {
-            *w *= (1.0 - rate);
+            *w *= 1.0 - rate;
             w.abs() > 0.001
         });
     }

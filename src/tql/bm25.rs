@@ -2,12 +2,12 @@
 //!
 //! - BM25: Okapi BM25 with configurable k1 and b parameters
 //! - TF-кэш: предвычисленный TF-компонент для всех 256 значений fieldnorm
-//! - Term dictionary: HashMap для O(1) lookup
+//! - Term dictionary: `HashMap` для O(1) lookup
 //! - IDF-кэш: предвычисленный IDF для каждого терма
 //! - Hybrid search: Reciprocal Rank Fusion (RRF) для vector + text
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::RwLock;
 
 const K1: f32 = 1.5;
@@ -31,14 +31,14 @@ impl Default for Bm25Config {
     }
 }
 
-/// BM25 full-text index with HashMap + IDF-кэш + TF-кэш.
+/// BM25 full-text index with `HashMap` + IDF-кэш + TF-кэш.
 pub struct Bm25Index {
     config: Bm25Config,
-    /// Term dictionary: HashMap для O(1) lookup.
+    /// Term dictionary: `HashMap` для O(1) lookup.
     terms: RwLock<HashMap<String, Vec<u64>>>,
     /// IDF-кэш: предвычисленный IDF для каждого терма.
     idf_cache: RwLock<HashMap<String, f32>>,
-    /// Document lengths: doc_id → total terms
+    /// Document lengths: `doc_id` → total terms
     doc_lengths: RwLock<HashMap<u64, usize>>,
     /// Total number of documents
     total_docs: RwLock<usize>,
@@ -188,7 +188,7 @@ fn tokenize(text: &str) -> Vec<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|s| !s.is_empty() && s.len() > 1)
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect()
 }
 

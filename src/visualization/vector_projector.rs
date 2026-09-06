@@ -1,4 +1,4 @@
-//! Векторный проектор для ToroidalDB
+//! Векторный проектор для `ToroidalDB`
 //!
 //! Предоставляет:
 //! - TSNE проекции векторов
@@ -6,12 +6,10 @@
 //! - PCA снижение размерности
 //! - Визуализацию в 2D/3D пространстве
 
-use crate::math::MatryoshkaDim;
 use crate::storage::Node;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VectorProjection {
@@ -129,7 +127,7 @@ impl VectorProjector {
             .collect();
 
         let execution_time = start_time.elapsed().as_millis() as u64;
-        let algorithm_name = format!("{:?}", algorithm);
+        let algorithm_name = format!("{algorithm:?}");
 
         Ok(VectorProjection {
             nodes: projected_nodes,
@@ -151,8 +149,8 @@ impl VectorProjector {
         &self,
         vectors: &[Vec<f32>],
         target_dims: usize,
-        perplexity: f32,
-        learning_rate: f32,
+        _perplexity: f32,
+        _learning_rate: f32,
     ) -> Result<Vec<Vec<f32>>, String> {
         // В реальной системе здесь будет вызов алгоритма t-SNE
         // Пока возвращаем простую проекцию (первые n координат)
@@ -178,8 +176,8 @@ impl VectorProjector {
         &self,
         vectors: &[Vec<f32>],
         target_dims: usize,
-        n_neighbors: usize,
-        min_dist: f32,
+        _n_neighbors: usize,
+        _min_dist: f32,
     ) -> Result<Vec<Vec<f32>>, String> {
         // В реальной системе здесь будет вызов UMAP алгоритма
         // Пока возвращаем простую проекцию
@@ -261,7 +259,7 @@ impl VectorProjector {
             Ok(first_len)
         } else {
             // Найдем максимальную размерность и будем использовать её
-            let max_len = vectors.iter().map(|v| v.len()).max().unwrap_or(0);
+            let max_len = vectors.iter().map(std::vec::Vec::len).max().unwrap_or(0);
             Ok(max_len)
         }
     }
@@ -299,7 +297,7 @@ impl VectorProjector {
     /// Экспортирует проекцию в JSON
     pub fn export_to_json(&self, projection: &VectorProjection) -> Result<String, String> {
         serde_json::to_string(projection)
-            .map_err(|e| format!("Failed to serialize projection: {}", e))
+            .map_err(|e| format!("Failed to serialize projection: {e}"))
     }
 
     /// Создает HTML визуализацию проекции
@@ -312,7 +310,7 @@ impl VectorProjector {
         }
 
         let nodes_json = serde_json::to_string(&projection.nodes)
-            .map_err(|e| format!("Failed to serialize nodes: {}", e))?;
+            .map_err(|e| format!("Failed to serialize nodes: {e}"))?;
 
         let html = if projection.dimensions == 2 {
             // 2D визуализация с D3.js

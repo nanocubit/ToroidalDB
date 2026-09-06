@@ -1,13 +1,15 @@
-use super::schema::*;
+use super::schema::{
+    EdgeStorage, GqlEdge, GqlNode, GraphStorage, MutationRoot, NodeFilterInput, NodeStorage,
+    QueryExecutor, QueryRoot, TopologyMetrics, ToroidalSchema,
+};
 use crate::hybrid_storage::HybridPersistentStore;
 use crate::ingestion::generate_node_id;
 use crate::tql::engine::TqlEngine;
-use crate::tql::executor::QueryResult;
 use async_graphql::{EmptySubscription, Schema, ID};
 use async_trait::async_trait;
 use std::sync::Arc;
 
-/// GraphQL storage backed by HybridPersistentStore + TqlEngine.
+/// GraphQL storage backed by `HybridPersistentStore` + `TqlEngine`.
 pub struct TqlStorage {
     store: Arc<HybridPersistentStore>,
     engine: TqlEngine,
@@ -33,12 +35,12 @@ impl TqlStorage {
             created_at: node
                 .properties
                 .get("created_at")
-                .and_then(|v| v.as_i64())
+                .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0),
             updated_at: node
                 .properties
                 .get("updated_at")
-                .and_then(|v| v.as_i64())
+                .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0),
         }
     }
@@ -62,7 +64,7 @@ impl NodeStorage for TqlStorage {
         offset: usize,
     ) -> Vec<GqlNode> {
         let all = self.store.get_all().ok().unwrap_or_default();
-        let mut nodes: Vec<GqlNode> = all.iter().map(|n| Self::node_to_gql(n)).collect();
+        let mut nodes: Vec<GqlNode> = all.iter().map(Self::node_to_gql).collect();
 
         if let Some(f) = filter {
             if let Some(ref label) = f.label {
@@ -71,7 +73,7 @@ impl NodeStorage for TqlStorage {
             // Vector similarity is handled by search_similar
         }
 
-        let total = nodes.len();
+        let _total = nodes.len();
         nodes.into_iter().skip(offset).take(limit).collect()
     }
 
@@ -199,12 +201,12 @@ impl QueryExecutor for TqlStorage {
             .engine
             .execute(query)
             .await
-            .map_err(|e| format!("TQL execution error: {}", e))?;
+            .map_err(|e| format!("TQL execution error: {e}"))?;
         Ok(serde_json::json!({"result": format!("{:?}", result)}))
     }
 }
 
-/// Create a TqlStorage and register it in the GraphQL schema.
+/// Create a `TqlStorage` and register it in the GraphQL schema.
 pub fn create_tql_schema(store: Arc<HybridPersistentStore>) -> ToroidalSchema {
     let storage = Arc::new(TqlStorage::new(store.clone()));
 
@@ -326,7 +328,7 @@ impl EdgeStorage for TqlEdgeStorage {
             .add_edge(from, to, relation_type.clone(), weight)
             .ok()?;
         Some(GqlEdge {
-            id: ID(format!("{}-{}", from, to)),
+            id: ID(format!("{from}-{to}")),
             from_node_id: ID(from.to_string()),
             to_node_id: ID(to.to_string()),
             relation_type,

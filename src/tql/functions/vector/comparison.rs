@@ -1,14 +1,13 @@
-use std::arch::x86_64::_mm256_add_ps;
 use std::iter::Sum;
-use std::ops::Add;
 
 #[cfg(feature = "simd")]
 use std::arch::x86_64::*;
 
 pub fn cosine_similarity(vec1: &[f32], vec2: &[f32]) -> f32 {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
     if vec1.is_empty() {
         return 0.0;
     }
@@ -33,9 +32,10 @@ pub fn cosine_similarity_simd(vec1: &[f32], vec2: &[f32]) -> f32 {
 }
 
 pub fn euclidean_distance(vec1: &[f32], vec2: &[f32]) -> f32 {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
 
     squared_euclidean_distance(vec1, vec2).sqrt()
 }
@@ -85,9 +85,10 @@ pub fn squared_euclidean_distance_simd(vec1: &[f32], vec2: &[f32]) -> f32 {
 }
 
 pub fn manhattan_distance(vec1: &[f32], vec2: &[f32]) -> f32 {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
 
     vec1.iter()
         .zip(vec2.iter())

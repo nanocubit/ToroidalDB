@@ -81,6 +81,12 @@ pub struct MCPHandler {
     pub models: Arc<RwLock<HashMap<String, ModelConfiguration>>>,
 }
 
+impl Default for MCPHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MCPHandler {
     pub fn new() -> Self {
         MCPHandler {
@@ -152,13 +158,13 @@ impl MCPHandler {
                     }
                     _ => {
                         // Обработка других параметров
-                        println!("⚠️ Неизвестный параметр модели: {}", key);
+                        println!("⚠️ Неизвестный параметр модели: {key}");
                     }
                 }
             }
             Ok(())
         } else {
-            Err(format!("Model {} not found", model_name))
+            Err(format!("Model {model_name} not found"))
         }
     }
 

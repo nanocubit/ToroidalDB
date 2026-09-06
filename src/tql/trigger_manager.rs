@@ -4,7 +4,6 @@
 
 use crate::hybrid_storage::HybridPersistentStore;
 use crate::tql::evaluator::{EvalContext, Expression, ExpressionEvaluator};
-use crate::tql::subscription_manager::SubscriptionManager;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -66,7 +65,7 @@ impl TriggerManager {
         self.triggers.write().await.retain(|t| t.name != name);
     }
 
-    /// Set a global variable (e.g. $breakthrough_centroid).
+    /// Set a global variable (e.g. $`breakthrough_centroid`).
     pub async fn set_global(&self, key: &str, value: crate::tql::ast::PropertyValue) {
         self.globals.write().await.insert(key.to_string(), value);
     }
@@ -124,16 +123,16 @@ impl TriggerManager {
                 let payload_val = self.evaluator.eval(payload, &ctx);
                 match payload_val {
                     Ok(val) => {
-                        println!("🔔 Trigger EMIT EVENT '{}': {:?}", topic, val);
+                        println!("🔔 Trigger EMIT EVENT '{topic}': {val:?}");
                         // TODO: send to event bus / subscription manager
                     }
                     Err(e) => {
-                        eprintln!("Trigger emit payload error: {}", e);
+                        eprintln!("Trigger emit payload error: {e}");
                     }
                 }
             }
             TriggerAction::ExecuteQuery(query) => {
-                println!("🔔 Trigger EXECUTE QUERY: {}", query);
+                println!("🔔 Trigger EXECUTE QUERY: {query}");
                 // TODO: execute via TqlEngine
             }
         }

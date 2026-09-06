@@ -2,7 +2,10 @@
 //!
 //! Управление пространствами данных - контейнерами для узлов, рёбер и стримов
 
-use crate::tql::ast::*;
+use crate::tql::ast::{
+    AlterOperation, AlterSpace, Duration, EdgeTypeDef, NodeTypeDef, SpaceConfig, SpaceDef,
+    StreamDef, StreamSchema,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -32,6 +35,12 @@ pub struct StreamDefinition {
     pub schema: StreamSchema,
     pub retention: Option<Duration>,
     pub created_at: u64,
+}
+
+impl Default for SpaceManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SpaceManager {
@@ -120,15 +129,14 @@ impl SpaceManager {
     pub fn get_current_space(&self) -> String {
         self.current_space
             .read()
-            .map(|s| s.clone())
-            .unwrap_or_else(|_| "default".to_string())
+            .map_or_else(|_| "default".to_string(), |s| s.clone())
     }
 
     /// Устанавливает текущее пространство
     pub fn set_current_space(&self, name: &str) -> Result<(), String> {
         let spaces = self.spaces.read().map_err(|e| e.to_string())?;
         if !spaces.contains_key(name) {
-            return Err(format!("Space '{}' does not exist", name));
+            return Err(format!("Space '{name}' does not exist"));
         }
         drop(spaces);
 
@@ -143,7 +151,7 @@ impl SpaceManager {
 
         let space = spaces
             .get_mut(space_name)
-            .ok_or_else(|| format!("Space '{}' not found", space_name))?;
+            .ok_or_else(|| format!("Space '{space_name}' not found"))?;
 
         if space.node_types.contains_key(&node_type.name) {
             return Err(format!(
@@ -164,7 +172,7 @@ impl SpaceManager {
 
         let space = spaces
             .get_mut(space_name)
-            .ok_or_else(|| format!("Space '{}' not found", space_name))?;
+            .ok_or_else(|| format!("Space '{space_name}' not found"))?;
 
         if space.edge_types.contains_key(&edge_type.name) {
             return Err(format!(
@@ -185,7 +193,7 @@ impl SpaceManager {
 
         let space = spaces
             .get_mut(space_name)
-            .ok_or_else(|| format!("Space '{}' not found", space_name))?;
+            .ok_or_else(|| format!("Space '{space_name}' not found"))?;
 
         if space.streams.contains_key(&stream_def.name) {
             return Err(format!(
@@ -266,7 +274,7 @@ impl SpaceManager {
         let mut spaces = self.spaces.write().map_err(|e| e.to_string())?;
 
         if !spaces.contains_key(name) {
-            return Err(format!("Space '{}' does not exist", name));
+            return Err(format!("Space '{name}' does not exist"));
         }
 
         spaces.remove(name);
@@ -280,7 +288,7 @@ impl SpaceManager {
 
         let space = spaces
             .get(&current_space)
-            .ok_or_else(|| format!("Current space '{}' not found", current_space))?;
+            .ok_or_else(|| format!("Current space '{current_space}' not found"))?;
 
         Ok(space.node_types.contains_key(node_type_name))
     }
@@ -292,7 +300,7 @@ impl SpaceManager {
 
         let space = spaces
             .get(&current_space)
-            .ok_or_else(|| format!("Current space '{}' not found", current_space))?;
+            .ok_or_else(|| format!("Current space '{current_space}' not found"))?;
 
         Ok(space.edge_types.contains_key(edge_type_name))
     }

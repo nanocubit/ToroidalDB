@@ -1,4 +1,4 @@
-//! ETL (Extract, Transform, Load) модуль для ToroidalDB
+//! ETL (Extract, Transform, Load) модуль для `ToroidalDB`
 //!
 //! Предоставляет:
 //! - Потоковую обработку данных
@@ -6,9 +6,8 @@
 //! - Интеграцию с внешними источниками данных
 //! - Пайплайны обработки
 
-use crate::math::MatryoshkaDim;
 use crate::storage::Node;
-use crate::topology::edges::{HomotopyClass, InterToroidalEdge, ToroidalLevel};
+use crate::topology::edges::ToroidalLevel;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -199,21 +198,21 @@ impl EtlPipeline {
     }
 
     /// Извлекает данные из CSV файла
-    async fn extract_from_csv(&self, path: &str, delimiter: char) -> Result<Vec<Node>, String> {
+    async fn extract_from_csv(&self, _path: &str, _delimiter: char) -> Result<Vec<Node>, String> {
         // В реальной системе здесь будет чтение CSV
         // Пока возвращаем пустой вектор
         Ok(Vec::new())
     }
 
     /// Извлекает данные из JSON файла
-    async fn extract_from_json(&self, path: &str) -> Result<Vec<Node>, String> {
+    async fn extract_from_json(&self, _path: &str) -> Result<Vec<Node>, String> {
         // В реальной системе здесь будет чтение JSON
         // Пока возвращаем пустой вектор
         Ok(Vec::new())
     }
 
     /// Извлекает данные из базы данных
-    async fn extract_from_database(&self, connection_string: &str) -> Result<Vec<Node>, String> {
+    async fn extract_from_database(&self, _connection_string: &str) -> Result<Vec<Node>, String> {
         // В реальной системе здесь будет подключение к базе данных
         // Пока возвращаем пустой вектор
         Ok(Vec::new())
@@ -222,8 +221,8 @@ impl EtlPipeline {
     /// Извлекает данные из API
     async fn extract_from_api(
         &self,
-        url: &str,
-        headers: &HashMap<String, String>,
+        _url: &str,
+        _headers: &HashMap<String, String>,
     ) -> Result<Vec<Node>, String> {
         // В реальной системе здесь будет HTTP-запрос
         // Пока возвращаем пустой вектор
@@ -231,7 +230,7 @@ impl EtlPipeline {
     }
 
     /// Извлекает данные из потока
-    async fn extract_from_stream(&self, stream_id: &str) -> Result<Vec<Node>, String> {
+    async fn extract_from_stream(&self, _stream_id: &str) -> Result<Vec<Node>, String> {
         // В реальной системе здесь будет подключение к потоковому источнику
         // Пока возвращаем пустой вектор
         Ok(Vec::new())
@@ -314,7 +313,9 @@ impl EtlPipeline {
                 }
                 FilterOperator::GreaterThan => {
                     if let (Some(node_val), Some(filter_val)) = (
-                        node.properties.get(field).and_then(|v| v.as_f64()),
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64),
                         value.as_f64(),
                     ) {
                         node_val > filter_val
@@ -324,7 +325,9 @@ impl EtlPipeline {
                 }
                 FilterOperator::LessThan => {
                     if let (Some(node_val), Some(filter_val)) = (
-                        node.properties.get(field).and_then(|v| v.as_f64()),
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64),
                         value.as_f64(),
                     ) {
                         node_val < filter_val
@@ -334,7 +337,9 @@ impl EtlPipeline {
                 }
                 FilterOperator::GreaterThanOrEqual => {
                     if let (Some(node_val), Some(filter_val)) = (
-                        node.properties.get(field).and_then(|v| v.as_f64()),
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64),
                         value.as_f64(),
                     ) {
                         node_val >= filter_val
@@ -344,7 +349,9 @@ impl EtlPipeline {
                 }
                 FilterOperator::LessThanOrEqual => {
                     if let (Some(node_val), Some(filter_val)) = (
-                        node.properties.get(field).and_then(|v| v.as_f64()),
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64),
                         value.as_f64(),
                     ) {
                         node_val <= filter_val
@@ -400,7 +407,7 @@ impl EtlPipeline {
     async fn apply_map(
         &self,
         nodes: Vec<Node>,
-        field: &str,
+        _field: &str,
         function: &MapFunction,
     ) -> Result<Vec<Node>, String> {
         let mut mapped_nodes = Vec::new();
@@ -465,7 +472,11 @@ impl EtlPipeline {
                 // Суммируем значения поля
                 let sum: f64 = nodes
                     .iter()
-                    .filter_map(|node| node.properties.get(field).and_then(|v| v.as_f64()))
+                    .filter_map(|node| {
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64)
+                    })
                     .sum();
 
                 // Возвращаем один узел с результатом
@@ -480,10 +491,16 @@ impl EtlPipeline {
                 // Вычисляем среднее значение поля
                 let values: Vec<f64> = nodes
                     .iter()
-                    .filter_map(|node| node.properties.get(field).and_then(|v| v.as_f64()))
+                    .filter_map(|node| {
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64)
+                    })
                     .collect();
 
-                if !values.is_empty() {
+                if values.is_empty() {
+                    Ok(vec![])
+                } else {
                     let avg = values.iter().sum::<f64>() / values.len() as f64;
 
                     Ok(vec![Node {
@@ -492,16 +509,18 @@ impl EtlPipeline {
                         properties: serde_json::json!({ field: avg }),
                         edges: vec![],
                     }])
-                } else {
-                    Ok(vec![])
                 }
             }
             ReduceFunction::Min => {
                 // Находим минимальное значение поля
                 let min_val = nodes
                     .iter()
-                    .filter_map(|node| node.properties.get(field).and_then(|v| v.as_f64()))
-                    .fold(f64::INFINITY, |a, b| a.min(b));
+                    .filter_map(|node| {
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64)
+                    })
+                    .fold(f64::INFINITY, f64::min);
 
                 if min_val.is_finite() {
                     Ok(vec![Node {
@@ -518,8 +537,12 @@ impl EtlPipeline {
                 // Находим максимальное значение поля
                 let max_val = nodes
                     .iter()
-                    .filter_map(|node| node.properties.get(field).and_then(|v| v.as_f64()))
-                    .fold(f64::NEG_INFINITY, |a, b| a.max(b));
+                    .filter_map(|node| {
+                        node.properties
+                            .get(field)
+                            .and_then(serde_json::Value::as_f64)
+                    })
+                    .fold(f64::NEG_INFINITY, f64::max);
 
                 if max_val.is_finite() {
                     Ok(vec![Node {
@@ -565,8 +588,8 @@ impl EtlPipeline {
     async fn apply_join(
         &self,
         nodes: Vec<Node>,
-        collection: &str,
-        join_on: &str,
+        _collection: &str,
+        _join_on: &str,
     ) -> Result<Vec<Node>, String> {
         // В реальной системе здесь будет джойн с другой коллекцией
         // Пока возвращаем исходные узлы без изменений
@@ -586,7 +609,7 @@ impl EtlPipeline {
                 .unwrap_or("")
                 .to_string();
 
-            groups.entry(key).or_insert_with(Vec::new).push(node);
+            groups.entry(key).or_default().push(node);
         }
 
         // Преобразуем группы в узлы
@@ -623,12 +646,12 @@ impl EtlPipeline {
             let val_a = a
                 .properties
                 .get(field)
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
             let val_b = b
                 .properties
                 .get(field)
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
 
             if ascending {
@@ -751,7 +774,7 @@ impl StreamProcessor {
 
                 // Сохраняем в хранилище
                 if let Err(e) = store.insert(processed_node) {
-                    eprintln!("Error inserting node: {}", e);
+                    eprintln!("Error inserting node: {e}");
                 }
             }
         });
@@ -764,7 +787,7 @@ impl StreamProcessor {
         let mut processed_node = node.clone();
 
         // Применяем топологические преобразования
-        if processed_node.vector.len() > 0 {
+        if !processed_node.vector.is_empty() {
             // Нормализуем вектор
             let norm = processed_node
                 .vector
@@ -781,7 +804,9 @@ impl StreamProcessor {
                 props.insert("processed_by_topology".to_string(), Value::Bool(true));
                 props.insert(
                     "vector_norm".to_string(),
-                    Value::Number(serde_json::Number::from_f64(norm as f64).unwrap_or(0.into())),
+                    Value::Number(
+                        serde_json::Number::from_f64(f64::from(norm)).unwrap_or(0.into()),
+                    ),
                 );
             }
         }

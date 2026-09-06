@@ -2,15 +2,15 @@
 
 use crate::hybrid_storage::Node;
 use crate::math::MatryoshkaDim;
-use crate::topology::edges::{HomotopyClass, InterToroidalEdge};
-use ndarray::Array2;
+use crate::topology::edges::HomotopyClass;
 use std::collections::HashMap;
 
 /// Вычисляет тороидальное расстояние между двумя векторами
 pub fn toroidal_distance(vec1: &[f32], vec2: &[f32]) -> f32 {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
 
     let mut sum = 0.0;
     for (a, b) in vec1.iter().zip(vec2.iter()) {
@@ -164,12 +164,12 @@ pub fn betti_numbers(graph: &[(u64, u64)]) -> Vec<usize> {
 
     fn find(parent: &mut HashMap<u64, u64>, x: u64) -> u64 {
         let p = *parent.get(&x).unwrap();
-        if p != x {
+        if p == x {
+            x
+        } else {
             let root = find(parent, p);
             parent.insert(x, root);
             root
-        } else {
-            x
         }
     }
 

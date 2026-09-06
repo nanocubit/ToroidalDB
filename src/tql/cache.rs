@@ -2,7 +2,6 @@
 //!
 //! `CacheBackend` trait — абстракция для кэша результатов векторного поиска.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
@@ -187,11 +186,11 @@ impl CacheBackend for MapVsaMemory {
             });
         }
         // Convert value to f64 vector for superposition
-        let val_f64: Vec<f64> = value.iter().map(|&v| v as f64 / 255.0).collect();
+        let val_f64: Vec<f64> = value.iter().map(|&v| f64::from(v) / 255.0).collect();
         let bound: Vec<f64> = key
             .iter()
             .zip(&val_f64)
-            .map(|(k, v)| *k as f64 * v)
+            .map(|(k, v)| f64::from(*k) * v)
             .collect();
         self.add_to_memory(&bound);
         self.count += 1;
@@ -209,7 +208,11 @@ impl CacheBackend for MapVsaMemory {
             return Ok(None);
         };
         // Unbind: component-wise multiply cue ⊙ memory
-        let raw: Vec<f64> = cue.iter().zip(memory).map(|(c, m)| *c as f64 * m).collect();
+        let raw: Vec<f64> = cue
+            .iter()
+            .zip(memory)
+            .map(|(c, m)| f64::from(*c) * m)
+            .collect();
         // Normalize and convert back to bytes
         let energy: f64 = raw.iter().map(|x| x * x).sum::<f64>().sqrt();
         if energy < 1e-12 {

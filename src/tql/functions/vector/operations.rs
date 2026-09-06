@@ -1,15 +1,17 @@
 pub fn vector_add(vec1: &[f32], vec2: &[f32]) -> Vec<f32> {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
 
     vec1.iter().zip(vec2.iter()).map(|(a, b)| a + b).collect()
 }
 
 pub fn vector_subtract(vec1: &[f32], vec2: &[f32]) -> Vec<f32> {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
 
     vec1.iter().zip(vec2.iter()).map(|(a, b)| a - b).collect()
 }
@@ -32,24 +34,24 @@ pub fn vector_scale(vec: &[f32], scalar: f32) -> Vec<f32> {
 }
 
 pub fn vector_multiply(vec1: &[f32], vec2: &[f32]) -> Vec<f32> {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
 
     vec1.iter().zip(vec2.iter()).map(|(a, b)| a * b).collect()
 }
 
 pub fn vector_divide(vec1: &[f32], vec2: &[f32]) -> Vec<f32> {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must have the same length");
-    }
+    assert!(
+        vec1.len() == vec2.len(),
+        "Vectors must have the same length"
+    );
 
     vec1.iter()
         .zip(vec2.iter())
         .map(|(a, b)| {
-            if *b == 0.0 {
-                panic!("Division by zero");
-            }
+            assert!(*b != 0.0, "Division by zero");
             a / b
         })
         .collect()
@@ -83,10 +85,8 @@ pub fn vector_sum(vecs: &[&[f32]]) -> Vec<f32> {
     }
 
     let len = vecs[0].len();
-    for v in vecs.iter() {
-        if v.len() != len {
-            panic!("All vectors must have the same length");
-        }
+    for v in vecs {
+        assert!(v.len() == len, "All vectors must have the same length");
     }
 
     let mut result = vec![0.0f32; len];
