@@ -306,7 +306,7 @@ fn verify_mode(dir: &Path, group_size: usize, n_ops: usize) -> i32 {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 4 {
-        eprintln!("usage: durability <dir> <group_size> <n_ops> <child|verify>");
+        eprintln!("usage: durability <dir> <group_size> <n_ops> <child|verify|compact_child|compact_verify>");
         std::process::exit(2);
     }
     let dir = PathBuf::from(&args[1]);
@@ -318,9 +318,136 @@ fn main() {
             let rc = verify_mode(&dir, group_size, n_ops);
             std::process::exit(rc);
         }
+        "compact_child" => compact_child_mode(&dir, n_ops),
+        "compact_verify" => {
+            let rc = compact_verify_mode(&dir, n_ops);
+            std::process::exit(rc);
+        }
         _ => {
-            eprintln!("mode must be child|verify");
+            eprintln!("mode must be child|verify|compact_child|compact_verify");
             std::process::exit(2);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Compaction process-level SIGKILL test
+// ---------------------------------------------------------------------------
+
+/// Child: create N segments, write READY, force compaction, then block.
+/// Parent SIGKILLs the child during compaction, reopens, and verifies.
+fn compact_child_mode(dir: &Path, n_ops: usize) {
+    let store = ToroidalStore::open(dir).expect("compact_child: open store");
+    let ready_path = dir.join("ready");
+
+    // Create enough segments to trigger compaction
+    for i in 0..n_ops {
+        let k = format!("k-{:04}", i).into_bytes();
+        let v = format!("v-{:04}", i).into_bytes();
+        store.put(k, v).unwrap();
+        store.freeze();
+        store.flush().unwrap();
+    }
+
+    // Signal ready before compaction
+    fs::write(&ready_path, b"ready").unwrap();
+
+    // Force compaction — this may be interrupted by SIGKILL
+    let _ = store.compact();
+
+    // Block until killed
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3600));
+    }
+}
+
+/// Verify: spawn child, wait for READY, SIGKILL, reopen, verify all data.
+fn compact_verify_mode(dir: &Path, n_ops: usize) -> i32 {
+    let mut child: Child = Command::new(std::env::current_exe().unwrap())
+        .arg(dir)
+        .arg("1")
+        .arg(n_ops.to_string())
+        .arg("compact_child")
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn compact_child");
+
+    // Wait for READY
+    let ready_path = dir.join("ready");
+    let mut waited = 0u64;
+    loop {
+        if ready_path.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        waited += 10;
+        if waited > 60_000 {
+            eprintln!("compact child did not become ready within 60s");
+            let _ = child.kill();
+            let _ = child.wait();
+            return 2;
+        }
+    }
+
+    // Wait a bit for compaction to start
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // SIGKILL
+    let _ = child.kill();
+    let _ = child.wait();
+
+    // Reopen and verify all data
+    let store = match ToroidalStore::open(dir) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("FAIL: reopen failed after compact SIGKILL: {e}");
+            return 1;
+        }
+    };
+
+    let mut lost = 0u64;
+    let mut found = 0u64;
+    for i in 0..n_ops {
+        let k = format!("k-{:04}", i).into_bytes();
+        match store.get(&k) {
+            Some(v) => {
+                let expected = format!("v-{:04}", i).into_bytes();
+                if v == expected {
+                    found += 1;
+                } else {
+                    eprintln!(
+                        "CORRUPT key k-{:04}: expected {:04}, got {:?}",
+                        i,
+                        i,
+                        String::from_utf8_lossy(&v)
+                    );
+                    lost += 1;
+                }
+            }
+            None => {
+                eprintln!("LOST key k-{:04}", i);
+                lost += 1;
+            }
+        }
+    }
+
+    // Post-recovery write
+    store.put(b"post-sigkill".to_vec(), b"ok".to_vec()).unwrap();
+    match store.get(b"post-sigkill") {
+        Some(v) if v == b"ok" => found += 1,
+        _ => {
+            eprintln!("CORRUPT: post-recovery write failed");
+            lost += 1;
+        }
+    }
+
+    println!("compact_sigkill n_ops={n_ops} found={found} lost={lost}");
+    if lost > 0 {
+        eprintln!("FAIL: lost={lost}");
+        1
+    } else {
+        println!("PASS: compaction SIGKILL — all data recovered");
+        0
     }
 }
