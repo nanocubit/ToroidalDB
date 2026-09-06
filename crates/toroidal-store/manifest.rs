@@ -53,12 +53,17 @@ pub struct Manifest {
     live: Mutex<HashSet<PathBuf>>,
     /// Highest max_sequence seen across all ADD_SEGMENT entries.
     max_flushed_sequence: Mutex<u64>,
+    /// Byte offset of the last fully-valid record (replay watermark).
+    /// Corrupt/truncated data after this offset is discarded on open.
+    valid_len: Mutex<u64>,
 }
 
 impl Manifest {
     /// Open or create the manifest file at `path`.
     ///
-    /// On open, replays all entries to reconstruct `live` segments.
+    /// On open, replays all entries to reconstruct `live` segments and
+    /// truncates any corrupt/truncated suffix, leaving the file with only
+    /// valid records (P2).  Subsequent appends start from a clean state.
     pub fn open(path: &Path) -> Result<Self> {
         let file = OpenOptions::new()
             .create(true)
@@ -72,8 +77,22 @@ impl Manifest {
             path: path.to_path_buf(),
             live: Mutex::new(HashSet::new()),
             max_flushed_sequence: Mutex::new(0),
+            valid_len: Mutex::new(0),
         };
         mf.replay()?;
+
+        // P2: truncate any bytes after the last valid record so the manifest
+        // contains only valid, self-consistent entries.  A stale corrupt
+        // suffix would otherwise make a future append ambiguous.
+        {
+            let file = mf.file.lock().unwrap();
+            let actual = file.metadata().map_err(TQLError::Io)?.len();
+            let valid = *mf.valid_len.lock().unwrap();
+            if valid < actual {
+                file.set_len(valid).map_err(TQLError::Io)?;
+                file.sync_all().map_err(TQLError::Io)?;
+            }
+        }
         Ok(mf)
     }
 
@@ -207,6 +226,7 @@ impl Manifest {
         let mut off = 0usize;
         let mut live = self.live.lock().unwrap();
         let mut max_seq = self.max_flushed_sequence.lock().unwrap();
+        let mut valid = self.valid_len.lock().unwrap();
 
         while off + HEADER_SIZE + CRC_SIZE <= raw.len() {
             // Read header
@@ -269,6 +289,8 @@ impl Manifest {
             }
 
             off += total_len;
+            // Record the watermark of the last fully-valid record.
+            *valid = off as u64;
         }
 
         Ok(())

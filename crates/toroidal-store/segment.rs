@@ -42,7 +42,25 @@ use std::sync::Arc;
 // -----------------------------------------------------------------------
 
 const MAGIC: u32 = 0x5345_4742; // "SEGB"
-const VERSION: u32 = 1;
+/// Current segment format version.
+///
+/// - v1: entries encoded as `key_len u32 | key | seq u64 | val_len u32 | value`,
+///   with `val_len == 0` meaning Tombstone (empty values were
+///   indistinguishable from tombstones).
+/// - v2: entries encoded as `key_len u32 | key | seq u64 | kind u8 |
+///   val_len u32 | value`, where `kind` unambiguously distinguishes
+///   `Value(vec![])` from `Tombstone`.  Readers accept both v1 (legacy,
+///   with the documented empty-value limitation) and v2.
+const VERSION: u32 = 2;
+/// Legacy format version — entries have no kind flag; `val_len == 0` is a
+/// tombstone and empty values are therefore indistinguishable from
+/// tombstones.  Kept for backward compatibility when reading pre-12.5B
+/// segments.
+const VERSION_LEGACY: u32 = 1;
+
+/// Entry kind flags for v2 blocks.
+const KIND_VALUE: u8 = 1;
+const KIND_TOMBSTONE: u8 = 2;
 
 pub const DEFAULT_BLOCK_SIZE: usize = 32 * 1024;
 
@@ -230,6 +248,9 @@ pub struct SegmentReader {
     meta: SegmentMeta,
     read_mode: SegmentReadMode,
     cache: Arc<dyn BlockCache>,
+    /// True when the segment uses the legacy v1 block encoding
+    /// (`val_len == 0` ⇒ tombstone, no kind flag).
+    legacy_blocks: bool,
 }
 
 impl SegmentReader {
@@ -255,8 +276,12 @@ impl SegmentReader {
         }
 
         // Validate footer CRC (covers everything except last 4 bytes).
-        let stored_crc = read_u32_le(&raw, raw.len() - 4);
-        let calc_crc = crc32(&raw[..raw.len() - 4]);
+        let file_len = raw.len();
+        let footer_crc_off = file_len
+            .checked_sub(4)
+            .ok_or_else(|| TQLError::Storage("segment file too small".into()))?;
+        let stored_crc = read_u32_le(&raw, footer_crc_off);
+        let calc_crc = crc32(&raw[..footer_crc_off]);
         if stored_crc != calc_crc {
             return Err(TQLError::Storage("segment CRC mismatch".into()));
         }
@@ -266,22 +291,85 @@ impl SegmentReader {
             return Err(TQLError::Storage("invalid segment magic".into()));
         }
 
-        let _version = read_u32_le(&raw, 4);
+        let version = read_u32_le(&raw, 4);
+        let legacy = version == VERSION_LEGACY;
+        if !legacy && version != VERSION {
+            return Err(TQLError::Storage(format!(
+                "unsupported segment version: {version}"
+            )));
+        }
+
         let n_entries = read_u64_le(&raw, 8);
         let max_sequence = read_u64_le(&raw, 16);
-        let _n_blocks = read_u32_le(&raw, 24) as usize;
+        let _n_blocks_hdr = read_u32_le(&raw, 24) as usize;
 
-        let footer_start = raw.len() - FOOTER_SIZE;
-        let bloom_offset = read_u64_le(&raw, footer_start) as usize;
-        let bloom_len = read_u64_le(&raw, footer_start + 8) as usize;
-        let index_offset = read_u64_le(&raw, footer_start + 16) as usize;
-        let index_len = read_u64_le(&raw, footer_start + 24) as usize;
+        let footer_start = raw
+            .len()
+            .checked_sub(FOOTER_SIZE)
+            .ok_or_else(|| TQLError::Storage("segment file too small".into()))?;
+        let bloom_offset = read_u64_le(&raw, footer_start);
+        let bloom_len = read_u64_le(&raw, footer_start + 8);
+        let index_offset = read_u64_le(&raw, footer_start + 16);
+        let index_len = read_u64_le(&raw, footer_start + 24);
+
+        // P1-3: structural validation — every offset/length must lie within
+        // the file image, using checked arithmetic so malformed bytes yield a
+        // controlled StorageError instead of a panic.
+        let file_u64 = file_len as u64;
+        let data_region_end = file_u64
+            .checked_sub(FOOTER_SIZE as u64)
+            .ok_or_else(|| TQLError::Storage("segment file too small".into()))?;
+
+        let check_range = |off: u64, len: u64, what: &str| -> Result<()> {
+            if off < HEADER_SIZE as u64 {
+                return Err(TQLError::Storage(format!(
+                    "{what} offset before header: {off}"
+                )));
+            }
+            let end = off
+                .checked_add(len)
+                .ok_or_else(|| TQLError::Storage(format!("{what} length overflow")))?;
+            if end > data_region_end {
+                return Err(TQLError::Storage(format!(
+                    "{what} out of file bounds: off={off} len={len} file={file_u64}"
+                )));
+            }
+            Ok(())
+        };
+
+        // Bloom and index layout.
+        check_range(bloom_offset, bloom_len, "bloom")?;
+        let index_end = index_offset
+            .checked_add(index_len)
+            .ok_or_else(|| TQLError::Storage("index length overflow".into()))?;
+        // Index begins after bloom (or coincides if bloom empty).
+        if index_offset < bloom_offset
+            || index_offset.checked_add(index_len).is_none()
+            || index_end > data_region_end
+        {
+            return Err(TQLError::Storage("segment index out of file bounds".into()));
+        }
 
         // Parse bloom filter (only used for metadata).
-        let bloom = if bloom_len > 0 && bloom_offset < raw.len() {
-            let k = read_u32_le(&raw, bloom_offset) as u32;
-            let bits_len = read_u32_le(&raw, bloom_offset + 4) as usize;
-            let bits = raw[bloom_offset + 8..bloom_offset + 8 + bits_len].to_vec();
+        let bloom = if bloom_len > 0 && bloom_offset >= HEADER_SIZE as u64 {
+            let bo = bloom_offset as usize;
+            let k = read_u32_le(&raw, bo);
+            let bits_len = read_u32_le(&raw, bo + 4) as usize;
+            // bits region: [bo+8, bo+8+bits_len) must lie within the bloom
+            // region [bloom_offset, bloom_offset+bloom_len) and the file.
+            let Some(bits_start) = bo.checked_add(8) else {
+                return Err(TQLError::Storage("bloom offset overflow".into()));
+            };
+            let Some(bits_end) = bits_start.checked_add(bits_len) else {
+                return Err(TQLError::Storage("bloom bits length overflow".into()));
+            };
+            let bloom_region_end = bloom_offset
+                .checked_add(bloom_len)
+                .ok_or_else(|| TQLError::Storage("bloom length overflow".into()))?;
+            if bits_end as u64 > bloom_region_end || bits_end > file_len {
+                return Err(TQLError::Storage("bloom out of file bounds".into()));
+            }
+            let bits = raw[bits_start..bits_end].to_vec();
             let m = bits.len() as u64 * 8;
             BloomFilter { bits, k, m }
         } else {
@@ -293,33 +381,50 @@ impl SegmentReader {
         };
 
         // Parse index.
-        let index_raw = &raw[index_offset..index_offset + index_len];
+        let io = index_offset as usize;
+        let il = index_len as usize;
+        let index_raw = &raw[io..io + il];
         let index_n = if index_len >= 4 {
             read_u32_le(index_raw, 0) as usize
         } else {
             0
         };
-        let mut idx_entries = Vec::with_capacity(index_n);
+        let mut idx_entries = Vec::with_capacity(index_n.min(1 << 16));
         let mut off = 4usize;
         for _ in 0..index_n {
-            if off + 4 > index_raw.len() {
-                break;
-            }
-            let kl = read_u32_le(index_raw, off) as usize;
+            let Some(kl) = try_read_u32(index_raw, off).map(|v| v as usize) else {
+                return Err(TQLError::Storage(
+                    "malformed index: key length out of bounds".into(),
+                ));
+            };
             off += 4;
-            if off + kl > index_raw.len() {
-                break;
-            }
-            let key = index_raw[off..off + kl].to_vec();
-            off += kl;
+            let Some(key_end) = off.checked_add(kl) else {
+                return Err(TQLError::Storage("index key length overflow".into()));
+            };
+            let Some(key) = index_raw.get(off..key_end) else {
+                return Err(TQLError::Storage("index key out of bounds".into()));
+            };
+            let key = key.to_vec();
+            off = key_end;
             // Read block_offset (u64) and block_size (u32).
-            if off + 8 + 4 > index_raw.len() {
-                break;
-            }
-            let block_offset = read_u64_le(index_raw, off);
+            let Some(block_offset) = try_read_u64(index_raw, off) else {
+                return Err(TQLError::Storage(
+                    "malformed index: block offset out of bounds".into(),
+                ));
+            };
             off += 8;
-            let block_size = read_u32_le(index_raw, off);
+            let Some(block_size) = try_read_u32(index_raw, off) else {
+                return Err(TQLError::Storage(
+                    "malformed index: block size out of bounds".into(),
+                ));
+            };
             off += 4;
+
+            // P1-3: validate each index entry's block range against the data
+            // region before storing it.
+            let bs = block_size as u64;
+            check_range(block_offset, bs, "index block")?;
+
             idx_entries.push(IndexEntry {
                 first_key: key,
                 block_offset,
@@ -329,44 +434,96 @@ impl SegmentReader {
 
         // Parse all data blocks into a BTreeMap.
         let mut map: BTreeMap<Vec<u8>, Vec<VersionedEntry>> = BTreeMap::new();
-        let mut cursor = HEADER_SIZE;
-        let data_end = bloom_offset.min(raw.len() - FOOTER_SIZE);
+        // Data blocks live between HEADER_SIZE and the start of the bloom
+        // region.  We parse their entries in a bounds-checked way; any block
+        // whose internal lengths exceed the region is treated as corruption
+        // and aborts the parse with an error (never a panic).
+        let mut cursor = HEADER_SIZE as u64;
+        let data_end = bloom_offset.min(data_region_end);
         while cursor + 4 <= data_end {
-            let entry_count = read_u32_le(&raw, cursor) as usize;
+            let c = cursor as usize;
+            let entry_count = read_u32_le(&raw, c) as usize;
             cursor += 4;
             for _ in 0..entry_count {
-                if cursor + 4 > data_end {
-                    break;
-                }
-                let kl = read_u32_le(&raw, cursor) as usize;
-                cursor += 4;
-                if cursor + kl > data_end {
-                    break;
-                }
-                let key = raw[cursor..cursor + kl].to_vec();
-                cursor += kl;
-                if cursor + 8 > data_end {
-                    break;
-                }
-                let sequence = read_u64_le(&raw, cursor);
-                cursor += 8;
-                if cursor + 4 > data_end {
-                    break;
-                }
-                let vl = read_u32_le(&raw, cursor) as usize;
-                cursor += 4;
-                let ve = if vl == 0 {
-                    VersionedEntry::tombstone(sequence)
-                } else {
-                    if cursor + vl > data_end {
-                        break;
-                    }
-                    VersionedEntry::value_version(sequence, raw[cursor..cursor + vl].to_vec())
+                let Some(kl) = try_read_u32(&raw, cursor as usize).map(|v| v as usize) else {
+                    return Err(TQLError::Storage(
+                        "malformed block: key length out of bounds".into(),
+                    ));
                 };
-                cursor += vl;
+                cursor += 4;
+                let Some(key_end) = cursor.checked_add(kl as u64) else {
+                    return Err(TQLError::Storage("block key length overflow".into()));
+                };
+                if key_end > data_end {
+                    return Err(TQLError::Storage("block key out of bounds".into()));
+                }
+                let key = raw[cursor as usize..key_end as usize].to_vec();
+                cursor = key_end;
+                let Some(sequence) = try_read_u64(&raw, cursor as usize) else {
+                    return Err(TQLError::Storage(
+                        "malformed block: sequence out of bounds".into(),
+                    ));
+                };
+                cursor += 8;
+
+                let ve = if legacy {
+                    let Some(vl) = try_read_u32(&raw, cursor as usize).map(|v| v as usize) else {
+                        return Err(TQLError::Storage(
+                            "malformed block: value length out of bounds".into(),
+                        ));
+                    };
+                    cursor += 4;
+                    if vl == 0 {
+                        VersionedEntry::tombstone(sequence)
+                    } else {
+                        let Some(val_end) = cursor.checked_add(vl as u64) else {
+                            return Err(TQLError::Storage("block value length overflow".into()));
+                        };
+                        if val_end > data_end {
+                            return Err(TQLError::Storage("block value out of bounds".into()));
+                        }
+                        let v = raw[cursor as usize..val_end as usize].to_vec();
+                        cursor = val_end;
+                        VersionedEntry::value_version(sequence, v)
+                    }
+                } else {
+                    let Some(kind) = try_read_u8(&raw, cursor as usize) else {
+                        return Err(TQLError::Storage(
+                            "malformed block: kind out of bounds".into(),
+                        ));
+                    };
+                    cursor += 1;
+                    if kind == KIND_TOMBSTONE {
+                        VersionedEntry::tombstone(sequence)
+                    } else if kind == KIND_VALUE {
+                        let Some(vl) = try_read_u32(&raw, cursor as usize).map(|v| v as usize)
+                        else {
+                            return Err(TQLError::Storage(
+                                "malformed block: value length out of bounds".into(),
+                            ));
+                        };
+                        cursor += 4;
+                        let Some(val_end) = cursor.checked_add(vl as u64) else {
+                            return Err(TQLError::Storage("block value length overflow".into()));
+                        };
+                        if val_end > data_end {
+                            return Err(TQLError::Storage("block value out of bounds".into()));
+                        }
+                        let v = raw[cursor as usize..val_end as usize].to_vec();
+                        cursor = val_end;
+                        VersionedEntry::value_version(sequence, v)
+                    } else {
+                        return Err(TQLError::Storage(format!(
+                            "malformed block: unknown kind {kind}"
+                        )));
+                    }
+                };
                 map.entry(key).or_default().push(ve);
             }
             cursor += 4; // skip block CRC
+            if cursor > data_end {
+                break;
+            }
         }
 
         let min_key = idx_entries
@@ -397,6 +554,7 @@ impl SegmentReader {
             bloom,
             read_mode,
             cache,
+            legacy_blocks: legacy,
             meta: SegmentMeta {
                 id,
                 file: path.to_path_buf(),
@@ -429,7 +587,7 @@ impl SegmentReader {
             .locate(key)
             .ok_or_else(|| TQLError::Storage("segment index locate returned no block".into()))?;
         let block = self.read_block_cached(block_idx)?;
-        let entries = decode_block(block.data.as_slice());
+        let entries = decode_block(block.data.as_slice(), self.legacy_blocks);
         Ok(entries
             .into_iter()
             .find(|(k, _)| k.as_slice() == key)
@@ -494,7 +652,7 @@ impl SegmentReader {
         let mut out = Vec::new();
         for bi in first_block..self.index.entries.len() {
             let block = self.read_block_cached(bi)?;
-            let entries = decode_block(block.data.as_slice());
+            let entries = decode_block(block.data.as_slice(), self.legacy_blocks);
             for (k, ve) in entries {
                 if k.as_slice() < start_key {
                     continue;
@@ -534,6 +692,9 @@ impl SegmentReader {
             .ok_or_else(|| TQLError::Storage("segment block out of file bounds".into()))?;
 
         // Verify block CRC before caching.
+        if len < 4 {
+            return Err(TQLError::Storage("segment block too small".into()));
+        }
         let stored_crc = read_u32_le(block_bytes, len - 4);
         let calc_crc = crc32(&block_bytes[..len - 4]);
         if stored_crc != calc_crc {
@@ -747,12 +908,15 @@ fn encode_block(entries: &[(Vec<u8>, VersionedEntry)]) -> Vec<u8> {
         buf.extend_from_slice(key);
         buf.extend_from_slice(&entry.sequence.to_le_bytes());
         match &entry.value {
+            // v2: explicit kind flag before value length, so ``Value(vec![])``
+            // is distinguishable from ``Tombstone``.
             EntryValue::Value(v) => {
+                buf.push(KIND_VALUE);
                 buf.extend_from_slice(&(v.len() as u32).to_le_bytes());
                 buf.extend_from_slice(v);
             }
             EntryValue::Tombstone => {
-                buf.extend_from_slice(&0u32.to_le_bytes());
+                buf.push(KIND_TOMBSTONE);
             }
         }
     }
@@ -775,6 +939,25 @@ fn read_u64_le(data: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes)
 }
 
+/// Fallible u32 read — returns `None` when the 4 bytes are not within bounds.
+fn try_read_u32(data: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        data.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
+/// Fallible u64 read — returns `None` when the 8 bytes are not within bounds.
+fn try_read_u64(data: &[u8], offset: usize) -> Option<u64> {
+    Some(u64::from_le_bytes(
+        data.get(offset..offset + 8)?.try_into().ok()?,
+    ))
+}
+
+/// Fallible u8 read — returns `None` when the byte is not within bounds.
+fn try_read_u8(data: &[u8], offset: usize) -> Option<u8> {
+    Some(*data.get(offset)?)
+}
+
 fn crc32(data: &[u8]) -> u32 {
     let mut h = Hasher::new();
     h.update(data);
@@ -782,43 +965,90 @@ fn crc32(data: &[u8]) -> u32 {
 }
 
 /// Decode a raw data block into versioned entries.
-fn decode_block(block: &[u8]) -> Vec<(Vec<u8>, VersionedEntry)> {
-    if block.len() < 8 {
+///
+/// P1-2: v2 blocks store an explicit `kind:u8` flag so `Value(vec![])` is
+/// unambiguously distinguishable from `Tombstone`.  Legacy v1 blocks (no
+/// kind flag, `val_len == 0` ⇒ tombstone) remain decodable when the reader
+/// is opened in legacy mode.
+///
+/// P1-3: every length/offset is bounds-checked; malformed blocks yield an
+/// empty parse (caller treats that as corruption) instead of panicking.
+fn decode_block(block: &[u8], legacy: bool) -> Vec<(Vec<u8>, VersionedEntry)> {
+    if block.len() < 4 {
         return Vec::new();
     }
-    let n = read_u32_le(block, 0) as usize;
+    let Some(n32) = try_read_u32(block, 0) else {
+        return Vec::new();
+    };
+    let n = n32 as usize;
     let mut off = 4usize;
-    let mut entries = Vec::with_capacity(n);
+    let mut entries = Vec::with_capacity(n.min(4096));
     for _ in 0..n {
-        if off + 4 > block.len() {
-            break;
-        }
-        let kl = read_u32_le(block, off) as usize;
-        off += 4;
-        if off + kl > block.len() {
-            break;
-        }
-        let key = block[off..off + kl].to_vec();
-        off += kl;
-        if off + 8 > block.len() {
-            break;
-        }
-        let sequence = read_u64_le(block, off);
-        off += 8;
-        if off + 4 > block.len() {
-            break;
-        }
-        let vl = read_u32_le(block, off) as usize;
-        off += 4;
-        let ve = if vl == 0 {
-            VersionedEntry::tombstone(sequence)
-        } else {
-            if off + vl > block.len() {
-                break;
-            }
-            VersionedEntry::value_version(sequence, block[off..off + vl].to_vec())
+        // key_len
+        let Some(kl) = try_read_u32(block, off).map(|v| v as usize) else {
+            return Vec::new();
         };
-        off += vl;
+        off += 4;
+        let Some(key_end) = off.checked_add(kl) else {
+            return Vec::new();
+        };
+        let Some(key) = block.get(off..key_end) else {
+            return Vec::new();
+        };
+        let key = key.to_vec();
+        off = key_end;
+        // sequence
+        let Some(sequence) = try_read_u64(block, off) else {
+            return Vec::new();
+        };
+        off += 8;
+
+        let ve = if legacy {
+            // v1: val_len == 0 ⇒ tombstone
+            let Some(vl) = try_read_u32(block, off).map(|v| v as usize) else {
+                return Vec::new();
+            };
+            off += 4;
+            if vl == 0 {
+                VersionedEntry::tombstone(sequence)
+            } else {
+                let Some(val_end) = off.checked_add(vl) else {
+                    return Vec::new();
+                };
+                let Some(val) = block.get(off..val_end) else {
+                    return Vec::new();
+                };
+                off = val_end;
+                VersionedEntry::value_version(sequence, val.to_vec())
+            }
+        } else {
+            // v2: explicit kind flag
+            let Some(kind) = try_read_u8(block, off) else {
+                return Vec::new();
+            };
+            off += 1;
+            if kind == KIND_TOMBSTONE {
+                // v2 tombstones do not carry a value length — the flag is
+                // the discriminator. Push the tombstone entry.
+                VersionedEntry::tombstone(sequence)
+            } else if kind == KIND_VALUE {
+                let Some(vl) = try_read_u32(block, off).map(|v| v as usize) else {
+                    return Vec::new();
+                };
+                off += 4;
+                let Some(val_end) = off.checked_add(vl) else {
+                    return Vec::new();
+                };
+                let Some(val) = block.get(off..val_end) else {
+                    return Vec::new();
+                };
+                off = val_end;
+                VersionedEntry::value_version(sequence, val.to_vec())
+            } else {
+                // Unknown kind byte — malformed.
+                return Vec::new();
+            }
+        };
         entries.push((key, ve));
     }
     entries

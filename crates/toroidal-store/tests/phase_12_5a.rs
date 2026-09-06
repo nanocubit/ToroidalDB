@@ -220,7 +220,7 @@ fn crash_and_recover(dir: &Path, point: FailurePoint) {
 #[test]
 fn compaction_crash_after_output() {
     crash_and_recover(
-        &TempDir::new().unwrap().path(),
+        TempDir::new().unwrap().path(),
         FailurePoint::AfterCompactionOutput,
     )
 }
@@ -228,7 +228,7 @@ fn compaction_crash_after_output() {
 #[test]
 fn compaction_crash_after_manifest_batch() {
     crash_and_recover(
-        &TempDir::new().unwrap().path(),
+        TempDir::new().unwrap().path(),
         FailurePoint::CompactionAfterManifestBatch,
     )
 }
@@ -236,7 +236,7 @@ fn compaction_crash_after_manifest_batch() {
 #[test]
 fn compaction_crash_after_old_file_delete() {
     crash_and_recover(
-        &TempDir::new().unwrap().path(),
+        TempDir::new().unwrap().path(),
         FailurePoint::CompactionAfterOldFileDelete,
     )
 }

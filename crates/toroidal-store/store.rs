@@ -279,8 +279,37 @@ impl ToroidalStore {
     /// Return a managed snapshot at the last committed sequence.
     /// Registers with the SnapshotManager so the version is retained until
     /// the snapshot is dropped.
+    ///
+    /// # Linearization (P1-1)
+    ///
+    /// The snapshot boundary is the highest sequence **published into the
+    /// active MemTable**, read under the same state lock that writers hold
+    /// for their full operation (WAL append + MemTable insert).  It is NOT
+    /// the raw WAL allocation tail (`wal.next_sequence()`), which can
+    /// include a writer that appended to the WAL but has not yet published
+    /// to the MemTable.
+    ///
+    /// Invariant: every write with `sequence <= snapshot.sequence` is
+    /// visible iff it was published before the snapshot boundary; a write
+    /// that is WAL-durable but not yet MemTable-published is never visible
+    /// through this snapshot.
     pub fn snapshot(&self) -> Snapshot {
-        let seq = self.wal.next_sequence().saturating_sub(1);
+        let seq = {
+            let state = self.state.read();
+            let mut max = 0u64;
+            if let Some(s) = state.active.max_sequence() {
+                max = max.max(s);
+            }
+            for im in &state.immutable {
+                if let Some(s) = im.max_sequence() {
+                    max = max.max(s);
+                }
+            }
+            for seg in &state.segments {
+                max = max.max(seg.max_sequence());
+            }
+            max
+        };
         Snapshot::new_managed(seq, self.snapshot_manager.clone())
     }
 

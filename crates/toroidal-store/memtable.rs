@@ -214,7 +214,7 @@ impl MemTable {
         for entry in self.data.iter() {
             if let Some(ve) = entry.value().first() {
                 let seq = ve.sequence;
-                if max.map_or(true, |m| seq > m) {
+                if max.is_none_or(|m| seq > m) {
                     max = Some(seq);
                 }
             }
