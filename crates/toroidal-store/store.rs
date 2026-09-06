@@ -203,12 +203,19 @@ impl ToroidalStore {
         MemTable::validate_put(&key, &value)?;
         self.check_open()?;
         let batcher = self.batcher_arc()?;
+        // Hold the state write-lock across BOTH the WAL append and the
+        // MemTable insert.  This makes the pair atomic w.r.t. checkpoint's
+        // freeze(): a concurrent checkpoint cannot observe a writer that has
+        // appended to the WAL but not yet inserted into the active MemTable.
+        // Therefore `checkpoint_seq` (max frozen sequence) is a valid WAL
+        // truncation boundary — every acked record <= boundary is
+        // materialized in segments.
+        let state = self.state.write();
         let seq = batcher.append_sync_direct(WalFrameKind::Put {
             key: key.clone(),
             value: value.clone(),
         })?;
         self.fault.check(FailurePoint::AfterWalAppend)?;
-        let state = self.state.write();
         state.active.insert_with_seq(key, value, seq)
     }
 
@@ -216,9 +223,10 @@ impl ToroidalStore {
         MemTable::validate_delete(key)?;
         self.check_open()?;
         let batcher = self.batcher_arc()?;
+        // Same write-lock coverage as put — see the comment there.
+        let state = self.state.write();
         let seq = batcher.append_sync_direct(WalFrameKind::Delete { key: key.to_vec() })?;
         self.fault.check(FailurePoint::AfterWalAppend)?;
-        let state = self.state.write();
         state.active.delete_with_seq(key, seq)
     }
 
@@ -242,9 +250,11 @@ impl ToroidalStore {
             }
         }
         let batcher = self.batcher_arc()?;
-        let first = batcher.append_many_sync(ops)?;
-        // Apply to MemTable under write lock.
+        // Hold the state write-lock across WAL append AND MemTable apply so
+        // a concurrent checkpoint cannot observe a partially-applied batch
+        // (see the put() comment).
         let state = self.state.write();
+        let first = batcher.append_many_sync(ops)?;
         for (i, op) in ops.iter().enumerate() {
             let seq = first + i as u64;
             match op {
@@ -455,7 +465,11 @@ impl ToroidalStore {
         };
 
         let n_entries = frozen.len();
-        let max_seq = self.wal.next_sequence().saturating_sub(1);
+        // The segment's max_sequence is the last sequence *present in the
+        // frozen memtable*, NOT the current WAL tail.  A concurrent writer
+        // may have advanced wal.next_sequence() after the freeze; using the
+        // WAL tail here would over-claim materialized data.
+        let max_seq = frozen.max_sequence().unwrap_or(0);
 
         let seg_id = self.next_seg_id.fetch_add(1, Ordering::Relaxed);
         let seg_name = format!("seg_{:016}.seg", seg_id);
@@ -497,11 +511,23 @@ impl ToroidalStore {
             return Ok(0);
         }
 
+        // Checkpoint boundary: the highest sequence present in the frozen
+        // immutables.  Any concurrent write with a higher sequence is still
+        // in the active MemTable and must NOT be truncated from the WAL.
+        let mut checkpoint_seq = 0u64;
+        for frozen in &batch {
+            if let Some(s) = frozen.max_sequence() {
+                if s > checkpoint_seq {
+                    checkpoint_seq = s;
+                }
+            }
+        }
+
         let mut seg_paths: Vec<PathBuf> = Vec::with_capacity(batch.len());
         let mut manifest_adds: Vec<(PathBuf, u64)> = Vec::with_capacity(batch.len());
 
         for frozen in &batch {
-            let max_seq = self.wal.next_sequence().saturating_sub(1);
+            let max_seq = frozen.max_sequence().unwrap_or(0);
             let seg_id = self.next_seg_id.fetch_add(1, Ordering::Relaxed);
             let seg_name = format!("seg_{:016}.seg", seg_id);
             let seg_path = self.dir.join(&seg_name);
@@ -519,7 +545,6 @@ impl ToroidalStore {
         }
         self.fault.check(FailurePoint::AfterSegmentSync)?;
 
-        let checkpoint_seq = self.wal.next_sequence();
         let manifest_refs: Vec<(&Path, u64)> = manifest_adds
             .iter()
             .map(|(p, s)| (p.as_path(), *s))
@@ -535,20 +560,17 @@ impl ToroidalStore {
         }
         {
             let mut state = self.state.write();
-            // readers are ordered oldest→newest (batch order). Each
-            // push_segment_newest inserts at index 0, so the final list is
-            // newest-first: the last (newest) reader lands at index 0.
-            // Must NOT reverse — reversing would put the oldest segment
-            // first, so a tombstone in a newer segment would fail to
-            // suppress the older value (tombstone resurrection).
             for reader in readers {
                 state.push_segment_newest(reader);
             }
         }
 
-        let floor = checkpoint_seq;
+        // SAFETY: truncate_keep_above preserves every WAL frame whose
+        // sequence > checkpoint_seq.  A concurrent write acknowledged after
+        // the freeze has a sequence > checkpoint_seq and remains in the WAL,
+        // ensuring no data loss on reopen.
         self.fault.check(FailurePoint::BeforeWalTruncate)?;
-        self.wal.truncate_with_floor(floor)?;
+        self.wal.truncate_keep_above(checkpoint_seq)?;
         self.fault.check(FailurePoint::AfterWalTruncate)?;
 
         Ok(batch.len())

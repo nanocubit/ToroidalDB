@@ -107,7 +107,7 @@ pub struct WalFrame {
 // ---------------------------------------------------------------------------
 
 pub(crate) struct PhysicalFrame {
-    sequence: Sequence,
+    pub(crate) sequence: Sequence,
     batch_id: BatchId,
     kind: u8,
     payload: Vec<u8>,
@@ -548,6 +548,54 @@ impl Wal {
         file.set_len(0).map_err(TQLError::Io)?;
         file.sync_all().map_err(TQLError::Io)?;
         self.next_sequence.store(next, Ordering::Release);
+        Ok(())
+    }
+
+    /// Truncate the WAL, keeping only frames with `sequence > boundary`.
+    /// Frames at or below `boundary` are removed. The sequence counter is
+    /// preserved so future appends continue from the correct next value.
+    ///
+    /// This is the safe truncation for checkpoint: the WAL tail after the
+    /// checkpoint boundary (concurrent writes) is preserved, preventing
+    /// data loss when a writer was acknowledged after the freeze but before
+    /// the checkpoint captured its sequence.
+    ///
+    /// Batch atomicity: if any frame of a BEGIN/COMMIT batch has a sequence
+    /// above the boundary, the ENTIRE batch is preserved so recovery never
+    /// sees a dangling COMMIT or an op without its BEGIN.
+    pub fn truncate_keep_above(&self, boundary: Sequence) -> Result<()> {
+        let mut file = self.file.lock();
+        // Read every physical frame in order.
+        let mut frames: Vec<PhysicalFrame> = Vec::new();
+        let mut read_file = File::open(&self.path).map_err(TQLError::Io)?;
+        loop {
+            match read_next_frame(&mut read_file)? {
+                FrameRead::Eof | FrameRead::Truncated | FrameRead::Corrupt(_) => break,
+                FrameRead::Ok(phys) => frames.push(phys),
+            }
+        }
+        // Collect batch_ids that have ANY frame above the boundary.
+        let mut kept_batches: std::collections::HashSet<BatchId> = Default::default();
+        for f in &frames {
+            if f.sequence > boundary && f.batch_id != STANDALONE {
+                kept_batches.insert(f.batch_id);
+            }
+        }
+        // Keep frames above the boundary, plus entire straddling batches.
+        let mut keep: Vec<&PhysicalFrame> = Vec::new();
+        for f in &frames {
+            if f.sequence > boundary || kept_batches.contains(&f.batch_id) {
+                keep.push(f);
+            }
+        }
+        let next_seq = self.next_sequence.load(Ordering::Relaxed);
+        file.set_len(0).map_err(TQLError::Io)?;
+        for phys in &keep {
+            let encoded = phys.encode()?;
+            file.write_all(&encoded).map_err(TQLError::Io)?;
+        }
+        file.sync_all().map_err(TQLError::Io)?;
+        self.next_sequence.store(next_seq, Ordering::Release);
         Ok(())
     }
 

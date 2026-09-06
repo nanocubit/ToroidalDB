@@ -208,6 +208,20 @@ impl MemTable {
         self.data.len()
     }
 
+    /// Returns the sequence of the most recent entry, or None if empty.
+    pub fn max_sequence(&self) -> Option<u64> {
+        let mut max: Option<u64> = None;
+        for entry in self.data.iter() {
+            if let Some(ve) = entry.value().first() {
+                let seq = ve.sequence;
+                if max.map_or(true, |m| seq > m) {
+                    max = Some(seq);
+                }
+            }
+        }
+        max
+    }
+
     /// Approximate memory usage in bytes. Over-estimates under overwrite
     /// (old versions are retained for snapshot visibility).
     pub fn approximate_size(&self) -> usize {

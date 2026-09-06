@@ -29,6 +29,10 @@ pub enum FailurePoint {
     DuringCompaction,
     AfterCompactionOutput,
     AfterCompactionPublish,
+    /// After the compaction manifest ADD+REMOVE batch is durable.
+    CompactionAfterManifestBatch,
+    /// After old segment files are physically deleted (manifest REMOVE already durable).
+    CompactionAfterOldFileDelete,
 }
 
 // ---------------------------------------------------------------------------

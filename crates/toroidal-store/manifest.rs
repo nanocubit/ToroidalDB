@@ -134,6 +134,42 @@ impl Manifest {
         file.write_all(&buf).map_err(TQLError::Io)
     }
 
+    /// Append ADD_SEGMENT + REMOVE_SEGMENT entries in one atomic batch,
+    /// followed by a single fsync.  This is the safe publication protocol for
+    /// compaction: the manifest transitions to the new state before any old
+    /// segment files are physically deleted.
+    pub fn append_compaction_batch(&self, add: (&Path, u64), removes: &[&Path]) -> Result<()> {
+        let add_entry = ManifestEntry::AddSegment {
+            path: add.0.to_path_buf(),
+            max_sequence: add.1,
+        };
+        let add_buf = encode_entry(&add_entry)?;
+        let mut remove_bufs = Vec::with_capacity(removes.len());
+        for old in removes {
+            let rm_entry = ManifestEntry::RemoveSegment {
+                path: old.to_path_buf(),
+            };
+            remove_bufs.push(encode_entry(&rm_entry)?);
+        }
+        {
+            let mut file = self.file.lock().unwrap();
+            file.write_all(&add_buf).map_err(TQLError::Io)?;
+            for buf in &remove_bufs {
+                file.write_all(buf).map_err(TQLError::Io)?;
+            }
+            file.sync_all().map_err(TQLError::Io)?;
+        }
+        self.live.lock().unwrap().insert(add.0.to_path_buf());
+        for old in removes {
+            self.live.lock().unwrap().remove(*old);
+        }
+        let mut ms = self.max_flushed_sequence.lock().unwrap();
+        if add.1 > *ms {
+            *ms = add.1;
+        }
+        Ok(())
+    }
+
     /// Append multiple ADD_SEGMENT entries then a WAL checkpoint, all without
     /// individual fsync. After this, caller calls `sync()` once.
     pub fn append_batch(&self, adds: &[(&Path, u64)], checkpoint_seq: u64) -> Result<()> {
