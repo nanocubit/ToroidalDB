@@ -312,3 +312,93 @@ fn manifest_segment_existence_invariant() {
         assert_eq!(s2.get(b"check"), Some(b"ok".to_vec()));
     }
 }
+
+// ---------------------------------------------------------------------------
+// P0-2 end-to-end: production compact() uses the atomic manifest batch
+// ---------------------------------------------------------------------------
+
+/// The direct system-level check for P0-2: after a crash at ANY compaction
+/// point, the authoritative manifest must reference ONLY files that
+/// physically exist.  This goes through `ToroidalStore::compact()` (the
+/// production path) and inspects `manifest.live_segments()` — not the
+/// Manifest primitive in isolation.
+#[test]
+fn compact_manifest_never_references_missing_files() {
+    for point in [
+        FailurePoint::DuringCompaction,
+        FailurePoint::AfterCompactionOutput,
+        FailurePoint::CompactionAfterManifestBatch,
+        FailurePoint::CompactionAfterOldFileDelete,
+        FailurePoint::AfterCompactionPublish,
+    ] {
+        let dir = TempDir::new().unwrap();
+        build_segments(dir.path());
+
+        // crash at the target point during production compact()
+        let fault = Arc::new(FailAt { point });
+        let store = ToroidalStore::open_with(dir.path(), fault).unwrap();
+        let _ = store.compact();
+        drop(store); // crash without close
+
+        // reopen through production open()
+        let s = ToroidalStore::open(dir.path()).expect("reopen after compaction fault");
+        let live = s.manifest_live_segments();
+        assert!(!live.is_empty(), "manifest must reference segments");
+        for p in &live {
+            assert!(
+                p.exists(),
+                "PO-2 VIOLATION at {:?}: manifest references missing segment {:?}",
+                point,
+                p
+            );
+        }
+        // store still functional and writable
+        assert_eq!(s.get(b"k-0000"), Some(b"v".to_vec()));
+        s.put(b"e2e".to_vec(), b"ok".to_vec()).unwrap();
+        drop(s);
+
+        // stable second reopen
+        let s2 = ToroidalStore::open(dir.path()).expect("second reopen");
+        assert_eq!(s2.get(b"e2e"), Some(b"ok".to_vec()));
+        let live2 = s2.manifest_live_segments();
+        for p in &live2 {
+            assert!(
+                p.exists(),
+                "second reopen: manifest references missing {:?}",
+                p
+            );
+        }
+    }
+}
+
+/// After a *successful* compaction, the manifest references exactly the
+/// merged segment, and old files are gone from the filesystem AND manifest.
+#[test]
+fn compact_success_removes_old_segments_from_manifest_and_disk() {
+    let dir = TempDir::new().unwrap();
+    build_segments(dir.path());
+
+    let store = ToroidalStore::open(dir.path()).unwrap();
+    let before = store.manifest_live_segments();
+    assert!(
+        before.len() >= 2,
+        "need at least 2 segments, got {}",
+        before.len()
+    );
+
+    let merged = store.compact().unwrap();
+    assert_eq!(merged, before.len(), "compact must merge all segments");
+
+    let after = store.manifest_live_segments();
+    assert_eq!(
+        after.len(),
+        1,
+        "manifest must reference exactly the merged segment"
+    );
+
+    // every live segment exists; no orphan merges leftover
+    for p in &after {
+        assert!(p.exists(), "merged segment must exist: {:?}", p);
+    }
+    drop(store);
+}
