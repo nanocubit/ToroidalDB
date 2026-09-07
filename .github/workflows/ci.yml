@@ -32,8 +32,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
-      - name: Clippy (warnings as errors)
+      - name: Clippy (warnings as errors) — toroidal-db
         run: cargo clippy --lib -- -D warnings
+
+      - name: Clippy — toroidal-store
+        run: cargo clippy -p toroidal-store -- -D warnings
 
       - name: Build (no default features)
         run: cargo build --lib --no-default-features
@@ -41,8 +44,11 @@ jobs:
       - name: Build (lib)
         run: cargo build --lib
 
-      - name: Run tests
+      - name: Run tests — toroidal-db
         run: cargo test --lib
+
+      - name: Run tests — toroidal-store
+        run: cargo test -p toroidal-store
 
       - name: Run doc tests
         run: cargo test --doc
