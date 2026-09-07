@@ -651,6 +651,7 @@ fn get_timestamp_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tql::ast::StreamQuery;
     use serde_json::json;
 
     async fn create_test_store() -> Arc<HybridPersistentStore> {

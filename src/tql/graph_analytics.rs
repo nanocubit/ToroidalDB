@@ -462,7 +462,7 @@ pub enum CommunityAlgorithm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hybrid_storage::Edge;
+    use crate::hybrid_storage::{Edge, Node};
     use serde_json::json;
 
     fn create_test_graph() -> HybridPersistentStore {

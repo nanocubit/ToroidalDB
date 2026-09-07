@@ -218,6 +218,7 @@ fn preserve_homotopy_classes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::topology::edges::HomotopyClass;
     use serde_json::json;
 
     #[test]

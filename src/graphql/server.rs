@@ -93,6 +93,7 @@ pub async fn start_graphql_server(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graphql::schema::create_schema;
 
     #[test]
     fn test_create_schema() {
