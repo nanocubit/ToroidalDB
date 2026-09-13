@@ -698,11 +698,22 @@ impl ToroidalStore {
 
         write_segment(&merged_mem, &seg_path, old_max_seq)?;
         self.fault.check(FailurePoint::DuringCompaction)?;
-        self.manifest.add_segment(&seg_path, old_max_seq)?;
-        self.fault.check(FailurePoint::AfterCompactionOutput)?;
         let new_reader = SegmentReader::open(&seg_path)?;
+        self.fault.check(FailurePoint::AfterCompactionOutput)?;
 
-        // 3. Atomic publish under write-lock.
+        // 3. ATOMIC MANIFEST PUBLICATION: ADD(new) + REMOVE(old) in one
+        //    fsync batch.  After this the manifest no longer references the
+        //    old segments, so their files may be safely deleted.  A crash
+        //    before this point leaves the old state recoverable; a crash
+        //    after leaves the new state recoverable.  The manifest NEVER
+        //    references a missing file.
+        let removes: Vec<&Path> = old_paths.iter().map(PathBuf::as_path).collect();
+        self.manifest
+            .append_compaction_batch((&seg_path, old_max_seq), &removes)?;
+        self.fault
+            .check(FailurePoint::CompactionAfterManifestBatch)?;
+
+        // 4. Publish in-memory state (no risks after manifest is durable).
         {
             let mut state = self.state.write();
             state
@@ -715,13 +726,13 @@ impl ToroidalStore {
         }
         self.fault.check(FailurePoint::AfterCompactionPublish)?;
 
-        // Delete old segment files only after publish.
+        // 5. Delete old files — safe because the manifest no longer
+        //    references them.
         for seg_path in &old_paths {
             let _ = fs::remove_file(seg_path);
         }
-        for seg_path in &old_paths {
-            self.manifest.remove_segment(seg_path)?;
-        }
+        self.fault
+            .check(FailurePoint::CompactionAfterOldFileDelete)?;
 
         Ok(old_len)
     }
@@ -760,6 +771,12 @@ impl ToroidalStore {
 
     pub fn max_flushed_sequence(&self) -> u64 {
         self.manifest.max_flushed_sequence()
+    }
+
+    /// Returns the set of segment paths referenced by the authoritative
+    /// manifest (used by recovery-level invariant tests).
+    pub fn manifest_live_segments(&self) -> std::collections::HashSet<std::path::PathBuf> {
+        self.manifest.live_segments()
     }
 }
 

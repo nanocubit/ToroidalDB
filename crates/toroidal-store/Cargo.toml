@@ -21,10 +21,6 @@ name = "group_commit_prod"
 harness = false
 
 [[bin]]
-name = "compare"
-path = "benchmarks/compare/compare.rs"
-
-[[bin]]
 name = "durability"
 path = "benches/durability.rs"
 
